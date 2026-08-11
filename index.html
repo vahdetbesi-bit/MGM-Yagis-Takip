@@ -485,15 +485,15 @@ function parseOCR(text){
 
     const lines = text
         .split(/\r?\n/)
-        .map(x=>x.trim())
-        .filter(x=>x.length>0);
+        .map(x => x.trim())
+        .filter(x => x.length > 0);
 
     /*
-      MGM ekranlarında yağış miktarları genellikle
-      0.0 / 1.2 / 15.4 gibi değerlerdir.
+      MGM yağış değerleri:
+      0.0 / 1.2 / 15.4 / 11,2 gibi değerler.
     */
 
-    lines.forEach((line,index)=>{
+    lines.forEach((line, index) => {
 
         const matches = line.match(
             /(?<!\d)(\d{1,3}[,.]\d{1,2})(?!\d)/g
@@ -501,10 +501,10 @@ function parseOCR(text){
 
         if(!matches) return;
 
-        matches.forEach(raw=>{
+        matches.forEach(raw => {
 
             let value = parseFloat(
-                raw.replace(",",".")
+                raw.replace(",", ".")
             );
 
             if(
@@ -514,7 +514,7 @@ function parseOCR(text){
             ) return;
 
             /*
-              Tarih gibi değerleri ele.
+              Tarihleri yağış değeri olarak alma.
             */
 
             if(
@@ -522,36 +522,59 @@ function parseOCR(text){
             ) return;
 
             /*
-              Aynı satırda sayıdan önceki kısmı
-              istasyon adı olarak kullanmaya çalış.
+              Aynı satırda istasyon adı var mı?
             */
 
-            let stationText =
-                line.replace(raw,"")
-                    .replace(/[|:;]+/g," ")
-                    .trim();
+            let stationText = line
+                .replace(raw, "")
+                .replace(/[|:;]+/g, " ")
+                .trim();
 
             /*
-              Eğer aynı satırda anlamlı metin yoksa
-              bir önceki satıra bak.
+              Aynı satırda anlamlı bir istasyon adı yoksa
+              önceki satırlarda istasyon adını ara.
             */
 
-            if(stationText.length < 3 && index > 0){
+            if(
+                stationText.length < 3 ||
+                !/[A-Za-zÇĞİÖŞÜçğıöşü]/.test(stationText)
+            ){
 
-                stationText = lines[index-1]
-                    .replace(/[|:;]+/g," ")
-                    .trim();
+                for(let i = index - 1; i >= 0 && i >= index - 3; i--){
+
+                    const previous = lines[i]
+                        .replace(/[|:;]+/g, " ")
+                        .trim();
+
+                    /*
+                      Önceki satırda harf varsa
+                      istasyon adı olma ihtimali yüksektir.
+                    */
+
+                    if(
+                        previous.length >= 3 &&
+                        /[A-Za-zÇĞİÖŞÜçğıöşü]/.test(previous) &&
+                        !/(?<!\d)\d{1,3}[,.]\d{1,2}(?!\d)/.test(previous)
+                    ){
+                        stationText = previous;
+                        break;
+                    }
+                }
             }
 
             /*
-              Çok kısa / anlamsız OCR parçalarını
-              yine de kullanıcı düzenleyebilsin diye bırak.
+              Eğer OCR istasyon bilgisini birkaç parçaya bölmüşse
+              çok kısa sonucu engelle.
             */
 
+            if(!stationText || stationText.length < 3){
+                stationText = "İstasyon adı kontrol edilmeli";
+            }
+
             ocrCandidates.push({
-                station: stationText || "İstasyon adı kontrol edilmeli",
+                station: stationText,
                 amount: value.toFixed(1),
-                checked:true
+                checked: true
             });
 
         });
@@ -560,14 +583,14 @@ function parseOCR(text){
 
 
     /*
-      Aynı istasyon + aynı miktar tekrarlarını azalt.
+      Aynı istasyon + aynı miktar tekrarlarını temizle.
     */
 
     const unique = [];
 
-    ocrCandidates.forEach(item=>{
+    ocrCandidates.forEach(item => {
 
-        const exists = unique.some(x=>
+        const exists = unique.some(x =>
             x.station === item.station &&
             x.amount === item.amount
         );
@@ -575,14 +598,18 @@ function parseOCR(text){
         if(!exists){
             unique.push(item);
         }
+
     });
 
     ocrCandidates = unique;
 
     renderOCRResults();
 
+
     /*
-      OCR ham metnini de göster.
+      Ham OCR metnini göster.
+      Böylece otomatik okuma yanlışsa
+      neyin yanlış okunduğunu görebiliriz.
     */
 
     const rawBox = document.createElement("details");
