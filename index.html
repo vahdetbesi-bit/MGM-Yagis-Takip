@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MGM Yağış Takip</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #111827;
+    color: #f3f4f6;
+}
+
+header {
+    background: #1f2937;
+    padding: 18px;
+    text-align: center;
+    border-bottom: 1px solid #374151;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 24px;
+}
+
+header p {
+    margin: 6px 0 0;
+    color: #9ca3af;
+    font-size: 14px;
+}
+
+.container {
+    padding: 15px;
+    max-width: 700px;
+    margin: auto;
+}
+
+.card {
+    background: #1f2937;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 15px;
+}
+
+h2 {
+    margin-top: 0;
+    font-size: 19px;
+}
+
+label {
+    display: block;
+    margin-top: 12px;
+    margin-bottom: 5px;
+    color: #d1d5db;
+}
+
+input, select, button {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #4b5563;
+    background: #111827;
+    color: white;
+    font-size: 16px;
+}
+
+button {
+    margin-top: 12px;
+    background: #16a34a;
+    border: none;
+    font-weight: bold;
+}
+
+button.secondary {
+    background: #374151;
+}
+
+button.danger {
+    background: #b91c1c;
+}
+
+.station {
+    padding: 12px;
+    margin-top: 8px;
+    background: #111827;
+    border-radius: 8px;
+    border-left: 4px solid #16a34a;
+}
+
+.station strong {
+    display: block;
+}
+
+.station small {
+    color: #9ca3af;
+}
+
+.rain {
+    float: right;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.no-rain {
+    color: #9ca3af;
+}
+
+.tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 15px;
+}
+
+.tabs button {
+    margin: 0;
+    font-size: 14px;
+}
+
+.hidden {
+    display: none;
+}
+
+.info {
+    color: #9ca3af;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+#status {
+    margin-top: 10px;
+    color: #86efac;
+    font-size: 14px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <h1>🌧️ MGM Yağış Takip</h1>
+    <p>İstasyon bazında günlük yağış arşivi</p>
+</header>
+
+<div class="container">
+
+    <div class="tabs">
+        <button onclick="showPage('kayit')">Yağış Kaydı</button>
+        <button onclick="showPage('gecmis')">Geçmiş</button>
+    </div>
+
+    <!-- KAYIT -->
+    <div id="kayit">
+
+        <div class="card">
+            <h2>Yeni Yağış Kaydı</h2>
+
+            <label>Tarih</label>
+            <input type="date" id="date">
+
+            <label>İstasyon</label>
+            <input
+                type="text"
+                id="station"
+                placeholder="Örn: Bayburt / Taşçılar Köyü"
+            >
+
+            <label>Yağış miktarı (mm)</label>
+            <input
+                type="number"
+                id="rain"
+                step="0.1"
+                min="0"
+                placeholder="Örn: 1.2"
+            >
+
+            <button onclick="addRecord()">Kaydı Ekle</button>
+
+            <div id="status"></div>
+        </div>
+
+        <div class="card">
+            <h2>📌 Önemli</h2>
+            <div class="info">
+                Yağış olmayan veya senin kayıt sınırının altında kalan günler
+                ayrıca kaydedilebilir ve 0,0 mm olarak gösterilebilir.
+                Böylece geçmişte boş gün oluşmaz.
+            </div>
+        </div>
+
+    </div>
+
+    <!-- GEÇMİŞ -->
+    <div id="gecmis" class="hidden">
+
+        <div class="card">
+            <h2>📅 Geçmiş Kayıtlar</h2>
+
+            <label>İstasyon ara</label>
+            <input
+                type="text"
+                id="search"
+                placeholder="İstasyon adı..."
+                oninput="showRecords()"
+            >
+
+            <label>Tarih</label>
+            <input
+                type="date"
+                id="filterDate"
+                onchange="showRecords()"
+            >
+        </div>
+
+        <div id="records"></div>
+
+        <div class="card">
+            <button class="secondary" onclick="exportData()">
+                📥 Verileri Yedekle
+            </button>
+
+            <button class="danger" onclick="clearData()">
+                🗑️ Tüm Verileri Sil
+            </button>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+
+let records = JSON.parse(
+    localStorage.getItem("mgm_yagis_records") || "[]"
+);
+
+// Bugünün tarihini otomatik yaz
+document.getElementById("date").value =
+    new Date().toISOString().split("T")[0];
+
+function saveData() {
+    localStorage.setItem(
+        "mgm_yagis_records",
+        JSON.stringify(records)
+    );
+}
+
+function addRecord() {
+
+    const date = document.getElementById("date").value;
+    const station = document.getElementById("station").value.trim();
+    const rain = document.getElementById("rain").value;
+
+    if (!date || !station || rain === "") {
+        document.getElementById("status").innerText =
+            "⚠️ Tarih, istasyon ve yağış miktarını doldur.";
+        return;
+    }
+
+    const value = parseFloat(rain);
+
+    // Aynı tarih + aynı istasyon varsa
+    // ikinci kayıt oluşturmak yerine güncelliyoruz.
+    const existing = records.find(
+        r => r.date === date &&
+             r.station.toLowerCase() === station.toLowerCase()
+    );
+
+    if (existing) {
+        existing.rain = value;
+    } else {
+        records.push({
+            date: date,
+            station: station,
+            rain: value
+        });
+    }
+
+    saveData();
+
+    document.getElementById("status").innerText =
+        "✅ Kayıt başarıyla kaydedildi.";
+
+    document.getElementById("rain").value = "";
+
+    showRecords();
+}
+
+function showPage(page) {
+
+    document.getElementById("kayit")
+        .classList.add("hidden");
+
+    document.getElementById("gecmis")
+        .classList.add("hidden");
+
+    document.getElementById(page)
+        .classList.remove("hidden");
+
+    if (page === "gecmis") {
+        showRecords();
+    }
+}
+
+function showRecords() {
+
+    const area = document.getElementById("records");
+
+    const search =
+        document.getElementById("search").value
+        .toLowerCase();
+
+    const filterDate =
+        document.getElementById("filterDate").value;
+
+    let list = records.filter(r => {
+
+        const stationMatch =
+            r.station.toLowerCase().includes(search);
+
+        const dateMatch =
+            !filterDate || r.date === filterDate;
+
+        return stationMatch && dateMatch;
+    });
+
+    list.sort((a, b) => {
+        return b.date.localeCompare(a.date);
+    });
+
+    area.innerHTML = "";
+
+    if (list.length === 0) {
+        area.innerHTML = `
+        <div class="card">
+            <div class="info">
+                Henüz bu kritere uygun kayıt yok.
+            </div>
+        </div>`;
+        return;
+    }
+
+    list.forEach((r, index) => {
+
+        const d = new Date(r.date + "T00:00:00");
+
+        const dateText =
+            d.toLocaleDateString("tr-TR");
+
+        area.innerHTML += `
+        <div class="station">
+            <span class="rain">${r.rain.toFixed(1)} mm</span>
+            <strong>${r.station}</strong>
+            <small>${dateText}</small>
+        </div>`;
+    });
+}
+
+function exportData() {
+
+    if (records.length === 0) {
+        alert("Yedeklenecek veri yok.");
+        return;
+    }
+
+    const data = JSON.stringify(records, null, 2);
+
+    const blob = new Blob(
+        [data],
+        {type: "application/json"}
+    );
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+
+    a.href = url;
+    a.download = "MGM_Yagis_Yedek.json";
+
+    a.click();
+
+    URL.revokeObjectURL(url);
+}
+
+function clearData() {
+
+    if (!confirm(
+        "Bütün yağış kayıtları silinecek. Emin misin?"
+    )) {
+        return;
+    }
+
+    records = [];
+
+    saveData();
+
+    showRecords();
+}
+
+</script>
+
+</body>
+</html>
