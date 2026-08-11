@@ -5,137 +5,212 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MGM Yağış Takip</title>
 
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
 <style>
-* {
-    box-sizing: border-box;
+*{box-sizing:border-box}
+
+body{
+    margin:0;
+    font-family:Arial,sans-serif;
+    background:#020817;
+    color:#f3f4f6;
 }
 
-body {
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background: #111827;
-    color: #f3f4f6;
+header{
+    text-align:center;
+    padding:25px 15px;
+    background:#020817;
+    border-bottom:1px solid #263244;
 }
 
-header {
-    background: #1f2937;
-    padding: 18px;
-    text-align: center;
-    border-bottom: 1px solid #374151;
+header h1{
+    margin:0;
+    font-size:32px;
 }
 
-header h1 {
-    margin: 0;
-    font-size: 24px;
+header p{
+    margin:12px 0 0;
+    color:#9ca3af;
+    font-size:18px;
 }
 
-header p {
-    margin: 6px 0 0;
-    color: #9ca3af;
-    font-size: 14px;
+.container{
+    max-width:900px;
+    margin:auto;
+    padding:20px;
 }
 
-.container {
-    padding: 15px;
-    max-width: 700px;
-    margin: auto;
+.tabs{
+    display:flex;
+    gap:12px;
+    margin-bottom:20px;
 }
 
-.card {
-    background: #1f2937;
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 15px;
+button{
+    border:0;
+    border-radius:12px;
+    padding:15px 20px;
+    font-size:17px;
+    font-weight:bold;
+    cursor:pointer;
 }
 
-h2 {
-    margin-top: 0;
-    font-size: 19px;
+.tab{
+    flex:1;
+    background:#008000;
+    color:white;
 }
 
-label {
-    display: block;
-    margin-top: 12px;
-    margin-bottom: 5px;
-    color: #d1d5db;
+.card{
+    background:#07111f;
+    border-radius:18px;
+    padding:22px;
+    margin-bottom:20px;
+    border:1px solid #0c1b2d;
 }
 
-input, select, button {
-    width: 100%;
-    padding: 12px;
-    border-radius: 8px;
-    border: 1px solid #4b5563;
-    background: #111827;
-    color: white;
-    font-size: 16px;
+h2{
+    margin-top:0;
 }
 
-button {
-    margin-top: 12px;
-    background: #16a34a;
-    border: none;
-    font-weight: bold;
+label{
+    display:block;
+    margin:15px 0 7px;
+    color:#aeb6c3;
+    font-size:16px;
 }
 
-button.secondary {
-    background: #374151;
+input,select,textarea{
+    width:100%;
+    padding:15px;
+    border-radius:12px;
+    border:1px solid #344054;
+    background:#111827;
+    color:white;
+    font-size:17px;
 }
 
-button.danger {
-    background: #b91c1c;
+input[type=file]{
+    padding:12px;
 }
 
-.station {
-    padding: 12px;
-    margin-top: 8px;
-    background: #111827;
-    border-radius: 8px;
-    border-left: 4px solid #16a34a;
+.primary{
+    width:100%;
+    background:#008000;
+    color:white;
+    margin-top:18px;
 }
 
-.station strong {
-    display: block;
+.secondary{
+    background:#263244;
+    color:white;
 }
 
-.station small {
-    color: #9ca3af;
+.danger{
+    background:#991b1b;
+    color:white;
 }
 
-.rain {
-    float: right;
-    font-size: 20px;
-    font-weight: bold;
+.hidden{
+    display:none;
 }
 
-.no-rain {
-    color: #9ca3af;
+.progress{
+    margin-top:15px;
+    padding:12px;
+    background:#111827;
+    border-radius:10px;
+    color:#cbd5e1;
 }
 
-.tabs {
-    display: flex;
-    gap: 6px;
-    margin-bottom: 15px;
+.preview{
+    max-width:100%;
+    max-height:400px;
+    display:block;
+    margin:15px auto;
+    border-radius:10px;
 }
 
-.tabs button {
-    margin: 0;
-    font-size: 14px;
+.result{
+    background:#111827;
+    border:1px solid #263244;
+    border-radius:12px;
+    padding:15px;
+    margin:12px 0;
 }
 
-.hidden {
-    display: none;
+.row{
+    display:grid;
+    grid-template-columns:1.5fr 1fr 1fr auto;
+    gap:8px;
+    align-items:center;
 }
 
-.info {
-    color: #9ca3af;
-    font-size: 13px;
-    line-height: 1.5;
+.small{
+    font-size:14px;
+    color:#9ca3af;
 }
 
-#status {
-    margin-top: 10px;
-    color: #86efac;
-    font-size: 14px;
+.badge{
+    display:inline-block;
+    background:#064e3b;
+    color:#a7f3d0;
+    padding:5px 9px;
+    border-radius:8px;
+    font-size:13px;
+}
+
+table{
+    width:100%;
+    border-collapse:collapse;
+}
+
+th,td{
+    padding:10px 7px;
+    border-bottom:1px solid #263244;
+    text-align:left;
+}
+
+th{
+    color:#9ca3af;
+}
+
+.delete{
+    background:#7f1d1d;
+    color:white;
+    padding:8px 12px;
+    font-size:14px;
+}
+
+#ocrText{
+    min-height:180px;
+}
+
+.notice{
+    background:#172033;
+    border-radius:12px;
+    padding:15px;
+    color:#cbd5e1;
+    line-height:1.5;
+}
+
+@media(max-width:650px){
+    .row{
+        grid-template-columns:1fr;
+    }
+
+    header h1{
+        font-size:27px;
+    }
+
+    .container{
+        padding:12px;
+    }
+
+    table{
+        font-size:14px;
+    }
 }
 </style>
 </head>
@@ -149,258 +224,753 @@ button.danger {
 
 <div class="container">
 
-    <div class="tabs">
-        <button onclick="showPage('kayit')">Yağış Kaydı</button>
-        <button onclick="showPage('gecmis')">Geçmiş</button>
-    </div>
+<div class="tabs">
+    <button class="tab" onclick="showPage('kayit')">Yağış Kaydı</button>
+    <button class="tab" onclick="showPage('gecmis')">Geçmiş</button>
+</div>
 
-    <!-- KAYIT -->
-    <div id="kayit">
+<section id="kayit">
 
-        <div class="card">
-            <h2>Yeni Yağış Kaydı</h2>
+<div class="card">
+<h2>📷 MGM Ekran Görüntüsünden Oku</h2>
 
-            <label>Tarih</label>
-            <input type="date" id="date">
+<div class="notice">
+MGM'nin "Gerçekleşen Toplam Yağışlar" ekran görüntüsünü seç.
+Uygulama OCR ile yazıları okumaya çalışır.
+Okunan sonuçları kaydetmeden önce kontrol edebilirsin.
+</div>
 
-            <label>İstasyon</label>
-            <input
-                type="text"
-                id="station"
-                placeholder="Örn: Bayburt / Taşçılar Köyü"
-            >
+<label>Yağış tarihi</label>
+<input type="date" id="ocrDate">
 
-            <label>Yağış miktarı (mm)</label>
-            <input
-                type="number"
-                id="rain"
-                step="0.1"
-                min="0"
-                placeholder="Örn: 1.2"
-            >
+<label>MGM ekran görüntüsü</label>
+<input type="file" id="imageInput" accept="image/*" multiple>
 
-            <button onclick="addRecord()">Kaydı Ekle</button>
+<div id="previewArea"></div>
 
-            <div id="status"></div>
-        </div>
+<button class="primary" onclick="startOCR()">
+🔎 Görseli Oku
+</button>
 
-        <div class="card">
-            <h2>📌 Önemli</h2>
-            <div class="info">
-                Yağış olmayan veya senin kayıt sınırının altında kalan günler
-                ayrıca kaydedilebilir ve 0,0 mm olarak gösterilebilir.
-                Böylece geçmişte boş gün oluşmaz.
-            </div>
-        </div>
+<div id="progress" class="progress hidden"></div>
+</div>
 
-    </div>
 
-    <!-- GEÇMİŞ -->
-    <div id="gecmis" class="hidden">
+<div class="card" id="ocrResultsCard">
+<h2>📋 Okunan Yağışlar</h2>
 
-        <div class="card">
-            <h2>📅 Geçmiş Kayıtlar</h2>
+<div class="small">
+Aşağıdaki bilgileri kaydetmeden önce kontrol et.
+</div>
 
-            <label>İstasyon ara</label>
-            <input
-                type="text"
-                id="search"
-                placeholder="İstasyon adı..."
-                oninput="showRecords()"
-            >
+<div id="ocrResults"></div>
 
-            <label>Tarih</label>
-            <input
-                type="date"
-                id="filterDate"
-                onchange="showRecords()"
-            >
-        </div>
+<button class="primary hidden" id="saveOCRBtn" onclick="saveOCRResults()">
+💾 Seçilen Kayıtları Kaydet
+</button>
+</div>
 
-        <div id="records"></div>
 
-        <div class="card">
-            <button class="secondary" onclick="exportData()">
-                📥 Verileri Yedekle
-            </button>
+<div class="card">
+<h2>✍️ Manuel Yağış Kaydı</h2>
 
-            <button class="danger" onclick="clearData()">
-                🗑️ Tüm Verileri Sil
-            </button>
-        </div>
+<label>Tarih</label>
+<input type="date" id="manualDate">
 
-    </div>
+<label>İstasyon</label>
+<input type="text" id="station" placeholder="Örn: Bayburt / Taşçılar Köyü">
+
+<label>Yağış miktarı (mm)</label>
+<input type="number" id="amount" step="0.1" min="0" placeholder="Örn: 1.2">
+
+<button class="primary" onclick="addManualRecord()">
+➕ Kaydı Ekle
+</button>
+</div>
+
+
+<div class="card">
+<h2>📌 Önemli</h2>
+<div class="notice">
+Yağış olmayan günleri veya senin kayıt sınırının altında kalan
+günleri istersen <b>0,0 mm</b> olarak kaydedebilirsin.
+<br><br>
+OCR sonucu otomatik kayıt yapılmaz. Önce sen kontrol edersin.
+</div>
+</div>
+
+</section>
+
+
+<section id="gecmis" class="hidden">
+
+<div class="card">
+<h2>📚 Yağış Geçmişi</h2>
+
+<div id="stats"></div>
+
+<div style="overflow-x:auto">
+<table>
+<thead>
+<tr>
+<th>Tarih</th>
+<th>İstasyon</th>
+<th>mm</th>
+<th></th>
+</tr>
+</thead>
+<tbody id="history"></tbody>
+</table>
+</div>
+
+<br>
+
+<button class="danger" onclick="clearAll()">
+⚠️ Tüm Kayıtları Sil
+</button>
 
 </div>
 
+</section>
+
+</div>
+
+
 <script>
 
-let records = JSON.parse(
-    localStorage.getItem("mgm_yagis_records") || "[]"
-);
+const STORAGE_KEY = "mgm_yagis_kayitlari";
 
-// Bugünün tarihini otomatik yaz
-document.getElementById("date").value =
-    new Date().toISOString().split("T")[0];
+let ocrCandidates = [];
 
-function saveData() {
+
+/* -------------------------
+   BAŞLANGIÇ
+------------------------- */
+
+function todayString(){
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,"0");
+    const day = String(d.getDate()).padStart(2,"0");
+    return `${y}-${m}-${day}`;
+}
+
+document.getElementById("ocrDate").value = todayString();
+document.getElementById("manualDate").value = todayString();
+
+document.getElementById("imageInput").addEventListener("change",function(){
+
+    const area = document.getElementById("previewArea");
+    area.innerHTML = "";
+
+    [...this.files].forEach(file=>{
+
+        const img = document.createElement("img");
+        img.className = "preview";
+
+        const reader = new FileReader();
+
+        reader.onload = e=>{
+            img.src = e.target.result;
+            area.appendChild(img);
+        };
+
+        reader.readAsDataURL(file);
+    });
+});
+
+
+/* -------------------------
+   SAYFA GEÇİŞİ
+------------------------- */
+
+function showPage(page){
+
+    document.getElementById("kayit").classList.toggle(
+        "hidden",page !== "kayit"
+    );
+
+    document.getElementById("gecmis").classList.toggle(
+        "hidden",page !== "gecmis"
+    );
+
+    if(page === "gecmis"){
+        renderHistory();
+    }
+}
+
+
+/* -------------------------
+   OCR
+------------------------- */
+
+async function startOCR(){
+
+    const files = document.getElementById("imageInput").files;
+
+    if(!files.length){
+        alert("Önce MGM ekran görüntüsü seç.");
+        return;
+    }
+
+    const progress = document.getElementById("progress");
+
+    progress.classList.remove("hidden");
+    progress.innerText = "OCR hazırlanıyor...";
+
+    ocrCandidates = [];
+
+    let allText = "";
+
+    try{
+
+        for(let i=0;i<files.length;i++){
+
+            progress.innerText =
+                `Görsel ${i+1}/${files.length} okunuyor...`;
+
+            const result = await Tesseract.recognize(
+                files[i],
+                "tur",
+                {
+                    logger: info => {
+
+                        if(info.status){
+                            const percent =
+                                info.progress
+                                ? Math.round(info.progress*100)
+                                : 0;
+
+                            progress.innerText =
+                                `${info.status} ${percent}%`;
+                        }
+                    }
+                }
+            );
+
+            allText += "\n" + result.data.text;
+        }
+
+        progress.innerText = "Okuma tamamlandı.";
+
+        document.getElementById("ocrResultsCard")
+            .scrollIntoView({behavior:"smooth"});
+
+        parseOCR(allText);
+
+    }catch(error){
+
+        console.error(error);
+
+        progress.innerText = "OCR sırasında hata oluştu.";
+
+        alert(
+            "Görsel okunamadı. İnternet bağlantını kontrol edip tekrar dene."
+        );
+    }
+}
+
+
+/* -------------------------
+   OCR PARSE
+------------------------- */
+
+function parseOCR(text){
+
+    const results = document.getElementById("ocrResults");
+
+    results.innerHTML = "";
+
+    ocrCandidates = [];
+
+    const lines = text
+        .split(/\r?\n/)
+        .map(x=>x.trim())
+        .filter(x=>x.length>0);
+
+    /*
+      MGM ekranlarında yağış miktarları genellikle
+      0.0 / 1.2 / 15.4 gibi değerlerdir.
+    */
+
+    lines.forEach((line,index)=>{
+
+        const matches = line.match(
+            /(?<!\d)(\d{1,3}[,.]\d{1,2})(?!\d)/g
+        );
+
+        if(!matches) return;
+
+        matches.forEach(raw=>{
+
+            let value = parseFloat(
+                raw.replace(",",".")
+            );
+
+            if(
+                isNaN(value) ||
+                value < 0 ||
+                value > 500
+            ) return;
+
+            /*
+              Tarih gibi değerleri ele.
+            */
+
+            if(
+                /\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/.test(line)
+            ) return;
+
+            /*
+              Aynı satırda sayıdan önceki kısmı
+              istasyon adı olarak kullanmaya çalış.
+            */
+
+            let stationText =
+                line.replace(raw,"")
+                    .replace(/[|:;]+/g," ")
+                    .trim();
+
+            /*
+              Eğer aynı satırda anlamlı metin yoksa
+              bir önceki satıra bak.
+            */
+
+            if(stationText.length < 3 && index > 0){
+
+                stationText = lines[index-1]
+                    .replace(/[|:;]+/g," ")
+                    .trim();
+            }
+
+            /*
+              Çok kısa / anlamsız OCR parçalarını
+              yine de kullanıcı düzenleyebilsin diye bırak.
+            */
+
+            ocrCandidates.push({
+                station: stationText || "İstasyon adı kontrol edilmeli",
+                amount: value.toFixed(1),
+                checked:true
+            });
+
+        });
+
+    });
+
+
+    /*
+      Aynı istasyon + aynı miktar tekrarlarını azalt.
+    */
+
+    const unique = [];
+
+    ocrCandidates.forEach(item=>{
+
+        const exists = unique.some(x=>
+            x.station === item.station &&
+            x.amount === item.amount
+        );
+
+        if(!exists){
+            unique.push(item);
+        }
+    });
+
+    ocrCandidates = unique;
+
+    renderOCRResults();
+
+    /*
+      OCR ham metnini de göster.
+    */
+
+    const rawBox = document.createElement("details");
+
+    rawBox.innerHTML = `
+        <summary>🔎 Ham OCR metnini göster</summary>
+        <textarea readonly>${escapeHtml(text)}</textarea>
+    `;
+
+    results.appendChild(rawBox);
+}
+
+
+/* -------------------------
+   OCR SONUÇLARI
+------------------------- */
+
+function renderOCRResults(){
+
+    const results =
+        document.getElementById("ocrResults");
+
+    results.innerHTML = "";
+
+    if(!ocrCandidates.length){
+
+        results.innerHTML = `
+        <div class="notice">
+        Otomatik olarak uygun yağış değeri bulunamadı.
+        Aşağıdaki manuel kayıt bölümünü kullanabilirsin.
+        </div>`;
+
+        document.getElementById("saveOCRBtn")
+            .classList.add("hidden");
+
+        return;
+    }
+
+    ocrCandidates.forEach((item,index)=>{
+
+        const div = document.createElement("div");
+        div.className = "result";
+
+        div.innerHTML = `
+
+        <div class="row">
+
+            <input
+                type="text"
+                value="${escapeAttr(item.station)}"
+                onchange="ocrCandidates[${index}].station=this.value"
+            >
+
+            <input
+                type="number"
+                step="0.1"
+                value="${item.amount}"
+                onchange="ocrCandidates[${index}].amount=this.value"
+            >
+
+            <label style="margin:0">
+                <input
+                    type="checkbox"
+                    ${item.checked ? "checked" : ""}
+                    onchange="ocrCandidates[${index}].checked=this.checked"
+                >
+                Kaydet
+            </label>
+
+            <button
+                class="delete"
+                onclick="removeOCR(${index})"
+            >
+                Sil
+            </button>
+
+        </div>
+
+        <div class="small">
+            <span class="badge">OCR adayı</span>
+            Kontrol etmeden kaydetme.
+        </div>
+        `;
+
+        results.appendChild(div);
+    });
+
+    document.getElementById("saveOCRBtn")
+        .classList.remove("hidden");
+}
+
+
+function removeOCR(index){
+
+    ocrCandidates.splice(index,1);
+
+    renderOCRResults();
+}
+
+
+/* -------------------------
+   OCR KAYDET
+------------------------- */
+
+function saveOCRResults(){
+
+    const date =
+        document.getElementById("ocrDate").value;
+
+    if(!date){
+        alert("Tarih seç.");
+        return;
+    }
+
+    const selected =
+        ocrCandidates.filter(x=>x.checked);
+
+    if(!selected.length){
+        alert("Kaydetmek için en az bir kayıt seç.");
+        return;
+    }
+
+    const records = getRecords();
+
+    selected.forEach(item=>{
+
+        const amount =
+            parseFloat(
+                String(item.amount).replace(",",".")
+            );
+
+        if(
+            !item.station ||
+            isNaN(amount)
+        ) return;
+
+        records.push({
+            id: Date.now() + Math.random(),
+            date: date,
+            station: item.station.trim(),
+            amount: amount,
+            source: "OCR"
+        });
+    });
+
+    saveRecords(records);
+
+    alert(
+        `${selected.length} kayıt kaydedildi.`
+    );
+
+    ocrCandidates = [];
+
+    renderOCRResults();
+
+    renderHistory();
+}
+
+
+/* -------------------------
+   MANUEL KAYIT
+------------------------- */
+
+function addManualRecord(){
+
+    const date =
+        document.getElementById("manualDate").value;
+
+    const station =
+        document.getElementById("station").value.trim();
+
+    const amount =
+        parseFloat(
+            document.getElementById("amount").value
+                .replace(",",".")
+        );
+
+    if(!date || !station || isNaN(amount)){
+
+        alert(
+            "Tarih, istasyon ve yağış miktarını doldur."
+        );
+
+        return;
+    }
+
+    const records = getRecords();
+
+    records.push({
+        id: Date.now(),
+        date: date,
+        station: station,
+        amount: amount,
+        source: "Manuel"
+    });
+
+    saveRecords(records);
+
+    document.getElementById("station").value = "";
+    document.getElementById("amount").value = "";
+
+    alert("Yağış kaydı eklendi.");
+}
+
+
+/* -------------------------
+   STORAGE
+------------------------- */
+
+function getRecords(){
+
+    try{
+
+        return JSON.parse(
+            localStorage.getItem(STORAGE_KEY)
+        ) || [];
+
+    }catch(e){
+
+        return [];
+    }
+}
+
+
+function saveRecords(records){
+
     localStorage.setItem(
-        "mgm_yagis_records",
+        STORAGE_KEY,
         JSON.stringify(records)
     );
 }
 
-function addRecord() {
 
-    const date = document.getElementById("date").value;
-    const station = document.getElementById("station").value.trim();
-    const rain = document.getElementById("rain").value;
+/* -------------------------
+   GEÇMİŞ
+------------------------- */
 
-    if (!date || !station || rain === "") {
-        document.getElementById("status").innerText =
-            "⚠️ Tarih, istasyon ve yağış miktarını doldur.";
+function renderHistory(){
+
+    const records = getRecords();
+
+    const tbody =
+        document.getElementById("history");
+
+    const stats =
+        document.getElementById("stats");
+
+    tbody.innerHTML = "";
+
+    if(!records.length){
+
+        stats.innerHTML = `
+        <div class="notice">
+        Henüz kayıt yok.
+        </div>`;
+
         return;
     }
 
-    const value = parseFloat(rain);
+    /*
+      Yeni tarih üstte.
+    */
 
-    // Aynı tarih + aynı istasyon varsa
-    // ikinci kayıt oluşturmak yerine güncelliyoruz.
-    const existing = records.find(
-        r => r.date === date &&
-             r.station.toLowerCase() === station.toLowerCase()
-    );
+    records.sort((a,b)=>{
 
-    if (existing) {
-        existing.rain = value;
-    } else {
-        records.push({
-            date: date,
-            station: station,
-            rain: value
-        });
-    }
+        if(a.date !== b.date){
+            return b.date.localeCompare(a.date);
+        }
 
-    saveData();
-
-    document.getElementById("status").innerText =
-        "✅ Kayıt başarıyla kaydedildi.";
-
-    document.getElementById("rain").value = "";
-
-    showRecords();
-}
-
-function showPage(page) {
-
-    document.getElementById("kayit")
-        .classList.add("hidden");
-
-    document.getElementById("gecmis")
-        .classList.add("hidden");
-
-    document.getElementById(page)
-        .classList.remove("hidden");
-
-    if (page === "gecmis") {
-        showRecords();
-    }
-}
-
-function showRecords() {
-
-    const area = document.getElementById("records");
-
-    const search =
-        document.getElementById("search").value
-        .toLowerCase();
-
-    const filterDate =
-        document.getElementById("filterDate").value;
-
-    let list = records.filter(r => {
-
-        const stationMatch =
-            r.station.toLowerCase().includes(search);
-
-        const dateMatch =
-            !filterDate || r.date === filterDate;
-
-        return stationMatch && dateMatch;
+        return b.amount - a.amount;
     });
 
-    list.sort((a, b) => {
-        return b.date.localeCompare(a.date);
-    });
 
-    area.innerHTML = "";
+    stats.innerHTML = `
+    <div class="notice">
+    Toplam kayıt: <b>${records.length}</b>
+    </div>`;
 
-    if (list.length === 0) {
-        area.innerHTML = `
-        <div class="card">
-            <div class="info">
-                Henüz bu kritere uygun kayıt yok.
+
+    records.forEach(record=>{
+
+        const tr =
+            document.createElement("tr");
+
+        tr.innerHTML = `
+
+        <td>${formatDate(record.date)}</td>
+
+        <td>
+            ${escapeHtml(record.station)}
+            <div class="small">
+                ${record.source || ""}
             </div>
-        </div>`;
-        return;
-    }
+        </td>
 
-    list.forEach((r, index) => {
+        <td>
+            <b>${Number(record.amount).toFixed(1)}</b>
+        </td>
 
-        const d = new Date(r.date + "T00:00:00");
+        <td>
+            <button
+                class="delete"
+                onclick="deleteRecord(${record.id})"
+            >
+                Sil
+            </button>
+        </td>
 
-        const dateText =
-            d.toLocaleDateString("tr-TR");
+        `;
 
-        area.innerHTML += `
-        <div class="station">
-            <span class="rain">${r.rain.toFixed(1)} mm</span>
-            <strong>${r.station}</strong>
-            <small>${dateText}</small>
-        </div>`;
+        tbody.appendChild(tr);
     });
 }
 
-function exportData() {
 
-    if (records.length === 0) {
-        alert("Yedeklenecek veri yok.");
+/* -------------------------
+   KAYIT SİL
+------------------------- */
+
+function deleteRecord(id){
+
+    if(!confirm("Bu kaydı silmek istiyor musun?")){
         return;
     }
 
-    const data = JSON.stringify(records, null, 2);
+    const records =
+        getRecords().filter(x=>x.id != id);
 
-    const blob = new Blob(
-        [data],
-        {type: "application/json"}
-    );
+    saveRecords(records);
 
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-
-    a.href = url;
-    a.download = "MGM_Yagis_Yedek.json";
-
-    a.click();
-
-    URL.revokeObjectURL(url);
+    renderHistory();
 }
 
-function clearData() {
 
-    if (!confirm(
-        "Bütün yağış kayıtları silinecek. Emin misin?"
-    )) {
+function clearAll(){
+
+    if(!confirm(
+        "TÜM yağış kayıtları silinecek. Emin misin?"
+    )){
         return;
     }
 
-    records = [];
+    localStorage.removeItem(STORAGE_KEY);
 
-    saveData();
+    renderHistory();
 
-    showRecords();
+    alert("Tüm kayıtlar silindi.");
 }
+
+
+/* -------------------------
+   YARDIMCI
+------------------------- */
+
+function formatDate(date){
+
+    if(!date) return "";
+
+    const parts = date.split("-");
+
+    if(parts.length !== 3){
+        return date;
+    }
+
+    return `${parts[2]}.${parts[1]}.${parts[0]}`;
+}
+
+
+function escapeHtml(text){
+
+    return String(text)
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#039;");
+}
+
+
+function escapeAttr(text){
+
+    return escapeHtml(text);
+}
+
+
+/* Sayfa açıldığında geçmişi hazırla */
+
+renderHistory();
 
 </script>
 
