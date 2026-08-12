@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MGM Yağış Takip — Kırmızı Sütun Satır OCR v2</title>
+<style>
+body{margin:0;background:#05091f;color:#eee;font-family:Arial,sans-serif}
+main{max-width:760px;margin:auto;padding:18px}
+h1{font-size:23px}.card{background:#0a102b;border:1px solid #34405f;border-radius:18px;padding:16px;margin:14px 0}
+button{background:#00a51a;color:white;border:0;border-radius:14px;padding:14px 18px;font-size:17px;font-weight:700;margin:4px}
+button:disabled{opacity:.45}input,textarea{box-sizing:border-box;width:100%;margin:8px 0}
+.row{border:1px solid #34405f;border-radius:14px;padding:12px;margin:10px 0}.good{border-color:#2e9d52}.warn{border-color:#a57b00}
+.station{font-weight:700;font-size:17px}.small{color:#9ba7c4;font-size:13px}
+.value{font-size:20px}textarea{height:180px;background:#070c22;color:#ddd;border:1px solid #34405f;border-radius:10px}
+</style>
+</head>
+<body><main>
+<h1>🌧️ MGM Yağış Takip — Satır Satır OCR v2</h1>
+<div class="card">
+<p><b>Bu sürümde satır bulma yöntemi değiştirildi.</b> Kırmızı sütundaki yatay çizgiler artık ayrı satırlar olarak algılanıyor; önceki sürümün bütün tabloyu tek satır sayma problemi giderildi.</p>
+<input id="files" type="file" accept="image/*" multiple>
+<button id="go">🔎 Görselleri oku</button>
+<div id="status">Hazır.</div>
+</div>
+
+<div class="card"><h2>📋 OCR Sonuçları</h2>
+<div class="small">Yeşil: güçlü. Sarı: kontrol gerekli. Değer yanlış görünüyorsa kaydetmeden önce düzeltebilirsin.</div>
+<div id="results"></div>
+<button id="save" disabled>💾 Seçilenleri kaydet</button>
+<button id="clear" style="background:#26334f">🧹 Temizle</button>
+</div>
+
+<div class="card"><details><summary>🔎 Teknik teşhis</summary><textarea id="debug"></textarea></details></div>
+<canvas id="cv" style="display:none"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+const $=x=>document.getElementById(x);
+let items=[];
+
+function esc(s){return String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
+function status(s){$("status").textContent=s}
+function load(file){return new Promise((ok,no)=>{let u=URL.createObjectURL(file),i=new Image();i.onload=()=>{URL.revokeObjectURL(u);ok(i)};i.onerror=no;i.src=u})}
+
+function prep(im){
+ const c=$("cv"),ctx=c.getContext("2d",{willReadFrequently:true});
+ let w=im.naturalWidth,h=im.naturalHeight, max=2400;
+ if(w>max){h=Math.round(h*max/w);w=max}
+ c.width=w;c.height=h;ctx.drawImage(im,0,0,w,h);
+ return {c,ctx,w,h};
+}
+
+/* Kırmızı sütunun X konumunu, kırmızı piksel sayısının X eksenindeki
+   yoğunluğundan bul. Eşik özellikle gevşek tutuldu. */
+function redColumn(ctx,w,h){
+ const d=ctx.getImageData(0,0,w,h).data, scores=new Array(w).fill(0);
+ for(let y=0;y<h;y+=2){
+   for(let x=0;x<w;x+=2){
+     let k=(y*w+x)*4,r=d[k],g=d[k+1],b=d[k+2];
+     // MGM'nin koyu kırmızısı için geniş aralık
+     if(r>70 && r>g*1.20 && r>b*1.15 && r-g>18) scores[x]+=1;
+   }
+ }
+ let max=0;for(let x=0;x<w;x++)if(scores[x]>max)max=scores[x];
+ // yalnızca ekranın sağ yarısında ve güçlü kırmızı bölgede ara
+ let xs=[];
+ for(let x=Math.floor(w*.50);x<w;x++){
+   if(scores[x]>max*.18) xs.push(x);
+ }
+ if(!xs.length)return null;
+ // komşu x'leri kümeler halinde birleştir
+ let groups=[],s=xs[0],p=xs[0];
+ for(let i=1;i<xs.length;i++){
+   if(xs[i]-p<=5)p=xs[i];else{groups.push([s,p]);s=p=xs[i]}
+ }
+ groups.push([s,p]);
+ groups.sort((a,b)=>(b[1]-b[0])-(a[1]-a[0]));
+ let [x1,x2]=groups[0];
+ return {x1,x2,max};
+}
+
+/* Kırmızı sütun içinde her yatay piksel satırının ne kadarının kırmızı
+   olduğunu ölç. Yatay tablo çizgilerinde yoğunluk düşer. Bu düşüşleri
+   satır ayırıcı olarak kullanıyoruz. */
+function findRows(ctx,w,h,x1,x2){
+ const d=ctx.getImageData(0,0,w,h).data;
+ const width=Math.max(10,x2-x1), den=[];
+ for(let y=0;y<h;y++){
+   let red=0,total=0;
+   for(let x=x1+2;x<x2-2;x+=2){
+     let k=(y*w+x)*4,r=d[k],g=d[k+1],b=d[k+2];
+     total++;
+     if(r>65 && r>g*1.18 && r>b*1.12 && r-g>15)red++;
+   }
+   den[y]=total?red/total:0;
+ }
+ // satır gövdesi: kırmızı yoğunluğu %10'dan fazla.
+ let raw=[],on=false,s=0;
+ for(let y=0;y<h;y++){
+   let yes=den[y]>.10;
+   if(yes&&!on){s=y;on=true}
+   if(!yes&&on){if(y-s>=8)raw.push([s,y-1]);on=false}
+ }
+ if(on&&h-s>=8)raw.push([s,h-1]);
+
+ // Çok kısa/çok küçük bölgeleri çıkar.
+ raw=raw.filter(r=>r[1]-r[0]>=12);
+
+ // Eğer satırlar birleşmişse, içerdeki belirgin yoğunluk düşüşlerini
+ // ikinci kez kullan.
+ const out=[];
+ for(const r of raw){
+   const height=r[1]-r[0]+1;
+   if(height<120){out.push(r);continue}
+   let cuts=[];
+   for(let y=r[0]+4;y<r[1]-4;y++){
+     if(den[y]<.045 && den[y-1]<.08 && den[y+1]<.08)cuts.push(y);
+   }
+   let parts=[],a=r[0];
+   for(const y of cuts){
+     if(y-a>=12)parts.push([a,y-1]);
+     a=y+1;
+   }
+   if(r[1]-a>=12)parts.push([a,r[1]]);
+   if(parts.length>1)out.push(...parts);else out.push(r);
+ }
+ return out;
+}
+
+function crop(c,x,y,w,h,scale){
+ let o=document.createElement("canvas");
+ o.width=Math.max(1,Math.round(w*scale));o.height=Math.max(1,Math.round(h*scale));
+ o.getContext("2d").drawImage(c,x,y,w,h,0,0,o.width,o.height);
+ return o;
+}
+async function ocr(c,worker,number){
+ let r=await worker.recognize(c.toDataURL("image/png")),t=r.data.text||"";
+ if(number){
+   t=t.replace(/\s/g,"").replace(/[oO]/g,"0").replace(/[lI|]/g,"1")
+    .replace(/[;:]/g,",");
+   let m=t.match(/\d{1,4}(?:[.,]\d{1,2})?/);
+   return m?m[0].replace(".",","):"";
+ }
+ return t.replace(/\s+/g," ").trim();
+}
+function numOK(v){let n=parseFloat(String(v).replace(",","."));return v!==""&&Number.isFinite(n)&&n>=0&&n<=5000}
+
+function add(file,st,val,warn,conf){
+ items.push({file,st,val});
+ let d=document.createElement("div");d.className="row "+(warn?"warn":"good");
+ d.innerHTML=`<label><input type="checkbox" class="pick" checked style="width:auto"><span class="station">${esc(st||"İstasyon okunamadı")}</span></label>
+ <div class="small">${warn?"⚠️ Kontrol gerekli":"✓ Eşleşme bulundu"} • OCR yaklaşık ${conf}%</div>
+ <input class="st" value="${esc(st||"")}" placeholder="İstasyon adı">
+ <input class="val" value="${esc(val||"")}" placeholder="Yağış mm">`;
+ $("results").appendChild(d);$("save").disabled=false;
+}
+
+async function runFile(file,ws,wn){
+ let im=await load(file),p=prep(im),rc=redColumn(p.ctx,p.w,p.h);
+ if(!rc)throw Error("Kırmızı yağış sütunu bulunamadı");
+ let rows=findRows(p.ctx,p.w,p.h,rc.x1,rc.x2);
+ $("debug").value+=`\\n${file.name}: x=${rc.x1}-${rc.x2}, max=${rc.max}, satır=${rows.length}`;
+ for(let i=0;i<rows.length;i++){
+   let [y1,y2]=rows[i],rh=y2-y1+1;
+   // Kırmızı sütunun solundaki hücreyi istasyon OCR'ına ver.
+   let sx=0,sw=Math.max(80,rc.x1-4);
+   // Rakam hücresinin sadece iç kısmı.
+   let nx=rc.x1+Math.round((rc.x2-rc.x1)*.04),nw=Math.max(40,rc.x2-nx);
+   let st=await ocr(crop(p.c,sx,Math.max(0,y1-2),sw,rh+4,2),ws,false);
+   let val=await ocr(crop(p.c,nx,Math.max(0,y1-2),nw,rh+4,4),wn,true);
+   // Rakam boşsa/şüpheliyse daha dar orta alanı tekrar okut.
+   if(!numOK(val)){
+     let mh=Math.max(10,Math.floor(rh*.72)),my=y1+Math.floor(rh*.14);
+     val=await ocr(crop(p.c,nx,my,nw,mh,5),wn,true);
+   }
+   let good=/[A-Za-zÇĞİÖŞÜçğıöşü]/.test(st)&&st.length>4&&numOK(val);
+   add(file.name,st,val,!good,good?92:45);
+ }
+}
+
+$("go").onclick=async()=>{
+ let fs=[...$("files").files];if(!fs.length){status("Önce görüntü seç.");return}
+ $("results").innerHTML="";$("debug").value="";items=[];$("go").disabled=true;
+ try{
+  status("OCR motorları hazırlanıyor...");
+  let ws=await Tesseract.createWorker("tur"),wn=await Tesseract.createWorker("eng");
+  await ws.setParameters({tessedit_pageseg_mode:"7"});
+  await wn.setParameters({tessedit_pageseg_mode:"7",tessedit_char_whitelist:"0123456789,."});
+  for(let i=0;i<fs.length;i++){status(`${i+1}/${fs.length}: tablo satırları ayrılıyor...`);await runFile(fs[i],ws,wn)}
+  await ws.terminate();await wn.terminate();
+  status(`Tamamlandı. ${items.length} satır bulundu. Sarı kayıtları kontrol et.`);
+ }catch(e){console.error(e);status("Hata: "+e.message)}
+ finally{$("go").disabled=false}
+};
+
+$("clear").onclick=()=>{$("results").innerHTML="";$("debug").value="";items=[];$("save").disabled=true;status("Temizlendi.")};
+
+$("save").onclick=()=>{
+ let out=[];
+ document.querySelectorAll(".row").forEach(r=>{
+  if(!r.querySelector(".pick").checked)return;
+  let st=r.querySelector(".st").value.trim(),v=r.querySelector(".val").value.trim();
+  if(st&&numOK(v))out.push({istasyon:st,yagis_mm:v});
+ });
+ let b=new Blob([JSON.stringify(out,null,2)],{type:"application/json"}),a=document.createElement("a");
+ a.href=URL.createObjectURL(b);a.download="mgm_yagis_ocr.json";a.click();
+ status(`${out.length} kayıt kaydedildi.`);
+};
+</script></main></body></html>
