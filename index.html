@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MGM Yağış Arşivi</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#07101f;color:#eef3fb;font-family:Arial,sans-serif}
+main{max-width:850px;margin:auto;padding:18px}.card{background:#0d192d;border:1px solid #30415e;border-radius:18px;padding:18px;margin-bottom:16px}
+h1{margin:0 0 8px}h2{margin:0 0 12px}.muted{color:#aebbd0;line-height:1.45}
+input,select,button{width:100%;padding:13px;border-radius:12px;border:1px solid #415270;background:#111f36;color:#fff;font-size:16px;margin-top:7px}
+button{border:0;background:#087f08;font-weight:bold;cursor:pointer}.secondary{background:#263650}.danger{background:#8a2934}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.preview{max-width:100%;max-height:420px;display:none;margin-top:12px;border-radius:12px}
+.status{margin-top:12px;padding:12px;border-radius:10px;background:#14233b}.bar{height:8px;background:#1d2b42;border-radius:8px;margin-top:10px}.bar i{display:block;width:0;height:100%;background:#18a018;border-radius:8px}
+.result{border:1px solid #354661;border-radius:13px;padding:12px;margin:9px 0}.rrow{display:grid;grid-template-columns:30px 1fr 100px;gap:8px;align-items:center}.rrow input{margin:0}.warn{color:#ffd166;font-size:13px;margin:7px 0 0 30px}
+textarea{width:100%;min-height:260px;background:#06101f;color:#dce5f3;border:1px solid #354661;border-radius:12px;padding:10px;font-family:monospace;font-size:12px}
+.tablewrap{overflow:auto}.monthtable{border-collapse:collapse;min-width:600px}.monthtable th,.monthtable td{border:1px solid #394b67;padding:7px;text-align:center;white-space:nowrap}.monthtable th{background:#16263f}.monthtable td:first-child,.monthtable th:first-child{position:sticky;left:0;background:#16263f}
+.bad{color:#ffd166}.count{font-size:13px;color:#aebbd0}
+@media(max-width:600px){.grid{grid-template-columns:1fr}.rrow{grid-template-columns:28px 1fr 90px}}
+</style>
+</head>
+<body>
+<main>
+<div class="card">
+<h1>🌧️ MGM Yağış Arşivi</h1>
+<p class="muted">Bu uygulama fotoğrafları arşivlemez. OCR tamamlandıktan sonra yalnızca tarih, il, ilçe/istasyon ve yağış miktarı telefonda tutulur.</p>
+<div class="grid">
+<div><b>İl</b><input id="province" placeholder="Örn: Rize"></div>
+<div><b>Tarih</b><input id="date" type="date"></div>
+</div>
+<label><b>O güne ait ekran görüntüleri</b></label>
+<input id="files" type="file" accept="image/*" multiple>
+<button id="read">🔎 Görselleri Oku</button>
+<div id="status" class="status">İl, tarih ve görselleri seç.</div><div class="bar"><i id="bar"></i></div>
+</div>
+
+<div class="card">
+<h2>📋 OCR Sonuçları</h2>
+<p class="muted">Aynı gün birden fazla görselden gelen aynı istasyon tekrarı otomatik olarak tek kayda indirilmeye çalışılır. Şüpheli sonuçlar kaydedilmeden önce gösterilir.</p>
+<div id="results">Henüz sonuç yok.</div>
+<button id="save" disabled>💾 Seçilenleri Kaydet</button>
+<details><summary>🔎 Ham OCR metnini göster</summary><textarea id="raw" readonly></textarea></details>
+</div>
+
+<div class="card">
+<h2>📊 Aylık Takip</h2>
+<div class="grid">
+<div><b>İl</b><input id="viewProvince" placeholder="Örn: Rize"></div>
+<div><b>Ay</b><input id="viewMonth" type="month"></div>
+</div>
+<button id="showTable">Tabloyu Göster</button>
+<div id="table"></div>
+</div>
+
+<div class="card">
+<h2>💾 Arşiv</h2>
+<div id="archive" class="count">0 kayıt</div>
+<button id="csv" class="secondary">CSV dışa aktar</button>
+<button id="backup" class="secondary">JSON yedekle</button>
+<input id="restore" type="file" accept=".json,application/json">
+<button id="clear" class="danger">Tüm kayıtları sil</button>
+</div>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const KEY="mgm_yagis_arsiv_v5";
+let files=[],candidates=[],rawParts=[];
+
+function today(){let d=new Date();return d.toISOString().slice(0,10)}
+$("date").value=today(); $("viewMonth").value=today().slice(0,7);
+
+function get(){try{return JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){return[]}}
+function put(x){localStorage.setItem(KEY,JSON.stringify(x))}
+function clean(s){return String(s||"").replace(/\s+/g," ").replace(/[|:;]+/g," ").trim()}
+function norm(s){return clean(s).toLocaleLowerCase("tr-TR")}
+function number(s){
+ let x=String(s||"").trim().replace(",",".").replace(/[Oo]/g,"0").replace(/[lIİ]/g,"1").replace(/[Ss]/g,"5").replace(/[Bb]/g,"8");
+ x=x.replace(/[^\d.]/g,"");let n=Number(x);
+ return Number.isFinite(n)&&n>=0&&n<=500?n.toFixed(1):null
+}
+function escape(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+
+$("files").addEventListener("change",()=>{files=[...$("files").files];$("status").textContent=files.length?files.length+" görsel seçildi.":"Görsel seçilmedi."});
+
+function preprocess(img, crop){
+ const max=2400, scale=Math.min(1,max/img.naturalWidth),w=Math.round(img.naturalWidth*scale),h=Math.round(img.naturalHeight*scale);
+ const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(img,0,0,w,h);
+ const x=Math.round(w*crop[0]), cw=Math.round(w*(crop[1]-crop[0]));
+ const o=document.createElement("canvas");o.width=cw;o.height=h;o.getContext("2d").drawImage(c,x,0,cw,h,0,0,cw,h);
+ return o
+}
+async function loadImg(file){
+ const u=URL.createObjectURL(file);const img=await new Promise((res,rej)=>{let i=new Image();i.onload=()=>{res(i)};i.onerror=rej;i.src=u});
+ URL.revokeObjectURL(u);return img
+}
+
+/* MGM ekranında iki bölge ayrı okunur:
+   sol: istasyon satırları
+   sağ: yağış rakamları.
+   OCR'ın renkleri kelimeye çevirmesini azaltmak için sağ bölgeyi büyütüp kontrastı artırıyoruz. */
+async function readOne(file,idx,total){
+ const img=await loadImg(file);
+ $("status").textContent=`${idx}/${total}: istasyonlar okunuyor...`;
+ const left=preprocess(img,[0,.78]);
+ const lt=await Tesseract.recognize(left,"tur",{logger:m=>{if(m.status==="recognizing text")$("bar").style.width=((idx-1)/total*50+m.progress*35/total)+"%"}});
+
+ $("status").textContent=`${idx}/${total}: yağış sütunu okunuyor...`;
+ const right=preprocess(img,[.70,1]);
+ const rt=await Tesseract.recognize(right,"eng",{logger:m=>{if(m.status==="recognizing text")$("bar").style.width=((idx-1)/total*50+35/total+m.progress*15/total)+"%"}});
+
+ return {left:lt.data,right:rt.data};
+}
+
+function lines(text){return text.split(/\r?\n/).map(x=>clean(x)).filter(Boolean)}
+function stationCandidates(text){
+ return lines(text).filter(x=>/[A-Za-zÇĞİÖŞÜçğıöşü]/.test(x)).filter(x=>!/^\d/.test(x));
+}
+function rainCandidates(text){
+ const out=[];
+ lines(text).forEach(l=>{
+  const ms=l.match(/(?<!\d)\d{1,3}(?:[,.]\d{1,2})?(?!\d)/g)||[];
+  ms.forEach(m=>{let n=number(m);if(n!==null)out.push({text:l,value:n})});
+ });
+ return out;
+}
+
+/* Metin satırlarının sırasını kullanıyoruz. Bu, MGM'de satırların
+   istasyon ve yağış sütunlarında aynı sırada olmasına dayanır. */
+function pair(left,right){
+ const st=stationCandidates(left), rn=rainCandidates(right), out=[];
+ const n=Math.min(st.length,rn.length);
+ for(let i=0;i<n;i++){
+  let s=st[i], val=rn[i].value;
+  out.push({station:s,amount:val,checked:true,warning:""});
+ }
+ return out;
+}
+function provinceOf(s){
+ let p=clean(s).split(",")[0];
+ return p||"";
+}
+function parseWanted(s,province){
+ const wanted=norm(province), first=norm(provinceOf(s));
+ return !wanted || first===wanted;
+}
+function dedupe(arr){
+ const map=new Map();
+ arr.forEach(x=>{
+  const k=norm(x.station)+"|"+x.amount;
+  if(!map.has(k))map.set(k,x);
+ });
+ return [...map.values()];
+}
+function render(){
+ $("results").innerHTML="";
+ if(!candidates.length){$("results").textContent="Uygun sonuç bulunamadı.";$("save").disabled=true;return}
+ candidates.forEach((x,i)=>{
+  let d=document.createElement("div");d.className="result";
+  d.innerHTML=`<div class="rrow"><input type="checkbox" ${x.checked?"checked":""}><input value="${escape(x.station)}"><input value="${escape(x.amount)}"></div>${x.warning?`<div class="warn">⚠ ${escape(x.warning)}</div>`:""}`;
+  const ins=d.querySelectorAll("input");ins[0].onchange=()=>x.checked=ins[0].checked;ins[1].oninput=()=>x.station=ins[1].value;ins[2].oninput=()=>x.amount=ins[2].value.replace(",",".");
+  $("results").appendChild(d);
+ });
+ $("save").disabled=false;
+}
+
+$("read").onclick=async()=>{
+ const province=clean($("province").value),date=$("date").value;
+ if(!province||!date||!files.length){$("status").textContent="İl, tarih ve en az bir görsel seçmelisin.";return}
+ $("read").disabled=true;$("save").disabled=true;candidates=[];rawParts=[];$("bar").style.width="0%";
+ try{
+  let all=[];
+  for(let i=0;i<files.length;i++){
+   const r=await readOne(files[i],i+1,files.length);
+   rawParts.push(`=== GÖRSEL ${i+1} ===\n--- İSTASYON ---\n${r.left.text}\n--- YAĞIŞ ---\n${r.right.text}`);
+   all.push(...pair(r.left.text,r.right.text));
+  }
+  $("raw").value=rawParts.join("\n\n");
+  candidates=dedupe(all).filter(x=>parseWanted(x.station,province));
+  render();
+  $("status").textContent=`Tamamlandı. ${candidates.length} ${province} kaydı bulundu.`;
+  $("bar").style.width="100%";
+ }catch(e){console.error(e);$("status").textContent="OCR sırasında hata oluştu: "+e.message}
+ finally{$("read").disabled=false}
+};
+
+$("save").onclick=()=>{
+ const date=$("date").value,province=clean($("province").value),db=get();let added=0;
+ candidates.filter(x=>x.checked).forEach(x=>{
+  const amount=number(x.amount);if(!amount)return;
+  const station=clean(x.station);if(!station)return;
+  const dup=db.some(r=>r.date===date&&norm(r.province)===norm(province)&&norm(r.station)===norm(station));
+  if(!dup){db.push({date,province,station,amount});added++}
+ });
+ db.sort((a,b)=>a.date.localeCompare(b.date)||a.station.localeCompare(b.station,"tr"));put(db);renderArchive();
+ $("status").textContent=added+" yeni kayıt kaydedildi. Aynı gün aynı istasyon tekrarlanmadı.";
+};
+
+function monthTable(){
+ const p=clean($("viewProvince").value),month=$("viewMonth").value;if(!p||!month){$("table").textContent="İl ve ay seç.";return}
+ const db=get().filter(r=>norm(r.province)===norm(p)&&r.date.startsWith(month));
+ const stations=[...new Set(db.map(r=>r.station))].sort((a,b)=>a.localeCompare(b,"tr"));
+ let html=`<div class="tablewrap"><table class="monthtable"><thead><tr><th>${escape(p)} — ${escape(month)}</th>`;
+ stations.forEach(s=>html+=`<th>${escape(s)}</th>`);html+="</tr></thead><tbody>";
+ const [y,m]=month.split("-"),days=new Date(Number(y),Number(m),0).getDate();
+ for(let d=1;d<=days;d++){
+  const ds=`${y}-${m}-${String(d).padStart(2,"0")}`;html+=`<tr><th>${d}</th>`;
+  stations.forEach(s=>{const r=db.find(x=>x.date===ds&&norm(x.station)===norm(s));html+=`<td>${r?escape(r.amount):"—"}</td>`});html+="</tr>";
+ }
+ html+="</tbody></table></div>";$("table").innerHTML=html;
+}
+$("showTable").onclick=monthTable;
+
+function renderArchive(){const n=get().length;$("archive").textContent=n+" kayıt";}
+$("csv").onclick=()=>{
+ const db=get();if(!db.length)return;
+ let s="Tarih;İl;İstasyon;Yağış_mm\n";db.forEach(r=>s+=`${r.date};"${r.province.replace(/"/g,'""')}";"${r.station.replace(/"/g,'""')}";${r.amount}\n`);
+ const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\ufeff"+s],{type:"text/csv;charset=utf-8"}));a.download="mgm_yagis.csv";a.click();
+};
+$("backup").onclick=()=>{
+ const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(get(),null,2)],{type:"application/json"}));a.download="mgm_yagis_yedek.json";a.click();
+};
+$("restore").onchange=async()=>{
+ const f=$("restore").files[0];if(!f)return;
+ try{const x=JSON.parse(await f.text());if(!Array.isArray(x))throw Error("Geçersiz yedek");put(x);renderArchive();alert(x.length+" kayıt geri yüklendi.")}catch(e){alert("Yedek yüklenemedi.")}
+};
+$("clear").onclick=()=>{if(confirm("Telefondaki tüm MGM kayıtları silinsin mi?")){localStorage.removeItem(KEY);renderArchive();$("table").innerHTML=""}};
+renderArchive();
+</script>
+</body>
+</html>
