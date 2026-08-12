@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MGM Yağış Takip v6</title>
+<style>
+:root{--bg:#020718;--card:#071126;--line:#263654;--text:#f4f7ff;--muted:#9eabc4;--green:#00a51a;--blue:#263b61;--warn:#d99a00;--bad:#c73535}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,sans-serif;font-size:16px}
+.wrap{max-width:900px;margin:auto;padding:16px}
+h1{font-size:28px;margin:8px 0}.ver{color:#6f86ad;font-size:13px;margin-bottom:18px}
+.card{background:#03091c;border:1px solid var(--line);border-radius:22px;padding:18px;margin:14px 0;box-shadow:0 8px 30px #0004}
+h2{font-size:22px;margin:0 0 12px}label{display:block;color:var(--muted);margin:10px 0 6px}
+input,select,button{font:inherit}input[type=date],input[type=text],input[type=number],select{width:100%;padding:14px;border-radius:13px;border:1px solid #34496d;background:#0a162d;color:#fff}
+input[type=file]{width:100%;padding:12px;background:#0a162d;border-radius:12px}
+button{border:0;border-radius:14px;padding:14px 18px;font-weight:700;color:white;background:var(--green);margin-top:12px;cursor:pointer}
+button.secondary{background:var(--blue)}button.danger{background:#60232a}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.status{margin-top:12px;color:#9eb5d9;white-space:pre-line}.bar{height:8px;background:#0b1730;border-radius:8px;overflow:hidden;margin-top:10px}.bar i{display:block;height:100%;width:0;background:#00b52a}
+.result{border:1px solid #263858;border-radius:16px;padding:12px;margin:10px 0;background:#071329}
+.result.warn{border-color:#7b5a00}.result input{margin-top:8px}
+.station{font-weight:700;line-height:1.35}.meta{font-size:12px;color:#8da0bd;margin-top:5px}
+.raw{max-height:280px;overflow:auto;background:#020713;border-radius:14px;padding:12px;white-space:pre-wrap;font:13px/1.45 monospace;color:#cdd7ea}
+table{width:100%;border-collapse:collapse;display:block;overflow:auto;white-space:nowrap}th,td{border:1px solid #2b3c5a;padding:9px;text-align:right}th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:#071329}th{background:#10203d}
+.small{font-size:13px;color:var(--muted)}.hidden{display:none}.checks{display:flex;gap:10px;align-items:center}.checks input{width:auto}
+@media(max-width:600px){.row{grid-template-columns:1fr}h1{font-size:24px}.wrap{padding:10px}.card{padding:14px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>🌧️ MGM Yağış Takip</h1>
+<div class="ver">v6 — yağış hücrelerini satır satır okuma</div>
+
+<section class="card">
+<h2>📅 Günün görselleri</h2>
+<label>Tarih</label>
+<input id="date" type="date">
+<label>Günün görsellerini seç (aynı gün için birden fazla olabilir)</label>
+<input id="files" type="file" accept="image/*" multiple>
+<div class="small">Fotoğraflar kaydedilmez. OCR yalnızca seçtiğin görseller üzerinde çalışır.</div>
+<button id="read">🔎 Görselleri oku</button>
+<div class="bar"><i id="progress"></i></div>
+<div id="status" class="status"></div>
+</section>
+
+<section class="card">
+<h2>📋 OCR Sonuçları</h2>
+<div class="small">Program istasyon sütununu ve yağış sütununu ayrı okur; aynı satırdaki kayıtları eşleştirir. Şüpheli değerleri kaydetmeden önce kontrol edebilirsin.</div>
+<div id="results"><div class="small" style="margin-top:12px">Henüz sonuç yok.</div></div>
+<button id="save">💾 Seçilenleri kaydet</button>
+<button id="clear" class="secondary">🧹 Sonuçları temizle</button>
+<details style="margin-top:15px"><summary>🔍 Ham OCR metnini göster</summary><pre id="raw" class="raw">-</pre></details>
+</section>
+
+<section class="card">
+<h2>📊 Aylık Takip</h2>
+<div class="row">
+<div><label>İl</label><select id="province"><option value="">Tüm iller</option></select></div>
+<div><label>Ay / Yıl</label><input id="month" type="month"></div>
+</div>
+<div id="tableWrap" style="margin-top:14px"><div class="small">Kayıt bulunamadı.</div></div>
+<button id="export" class="secondary">⬇️ CSV olarak dışa aktar</button>
+<button id="wipe" class="danger">🗑️ Tüm kayıtları sil</button>
+</section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const KEY='mgm_yagis_v6';
+let records=JSON.parse(localStorage.getItem(KEY)||'[]');
+let pending=[];
+let rawAll=[];
+
+function norm(s){return s.replace(/\\s+/g,' ').replace(/[|¦]/g,' ').trim()}
+function parseNum(s){
+  s=norm(s).replace(/[Oo]/g,'0').replace(/[Il]/g,'1').replace(/[Ss]/g,'5').replace(/[Zz]/g,'2');
+  let m=s.match(/\\b(\\d{1,3})(?:[,.](\\d))?\\b/);
+  if(!m)return null;
+  let n=Number(m[1]+(m[2]?'.'+m[2]:''));
+  return Number.isFinite(n)&&n>=0&&n<=500?n:null;
+}
+function setStatus(s,p){$('status').textContent=s;if(p!=null)$('progress').style.width=p+'%'}
+function saveLS(){localStorage.setItem(KEY,JSON.stringify(records));renderFilters();renderTable()}
+
+function groupLines(words, tolerance=18){
+  const lines=[];
+  words.filter(w=>w.text&&w.confidence>5).sort((a,b)=>a.bbox.y0-b.bbox.y0).forEach(w=>{
+    const cy=(w.bbox.y0+w.bbox.y1)/2;
+    let line=lines.find(l=>Math.abs(l.cy-cy)<=tolerance);
+    if(!line){line={cy,words:[]};lines.push(line)}
+    line.words.push(w);
+    line.cy=(line.cy*(line.words.length-1)+cy)/line.words.length;
+  });
+  return lines.sort((a,b)=>a.cy-b.cy).map(l=>({
+    cy:l.cy,text:l.words.sort((a,b)=>a.bbox.x0-b.bbox.x0).map(w=>w.text).join(' ')
+  }));
+}
+
+function makeRainCanvas(src, mode=0){
+  // MGM'de yağış rakamları sağdaki renkli sütunda beyazdır. Önce bu sütunu
+  // mümkün olduğunca daraltıp büyütüyoruz; sonra beyaz rakamları ayırıyoruz.
+  const w=src.width,h=src.height;
+  const x0=Math.floor(w*0.76), x1=w;
+  const c=document.createElement('canvas'); c.width=(x1-x0)*3; c.height=h*3;
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(src,x0,0,x1-x0,h,0,0,c.width,c.height);
+  const d=ctx.getImageData(0,0,c.width,c.height), p=d.data;
+  for(let i=0;i<p.length;i+=4){
+    const R=p[i],G=p[i+1],B=p[i+2];
+    const gray=0.299*R+0.587*G+0.114*B;
+    let v;
+    if(mode===0) v=(R>145 && G>135 && B>135 && gray>155)?255:0;
+    else if(mode===1) v=(gray>175)?255:0;
+    else v=(R>170 && G>165 && B>165)?255:0;
+    p[i]=p[i+1]=p[i+2]=v;p[i+3]=255;
+  }
+  ctx.putImageData(d,0,0); return {canvas:c, offsetX:x0, scale:3};
+}
+
+function numericRows(words){
+  const good=words.filter(w=>w.text && w.confidence>=5);
+  const groups=[];
+  good.forEach(w=>{
+    const cy=(w.bbox.y0+w.bbox.y1)/2;
+    let g=groups.find(q=>Math.abs(q.cy-cy)<=14);
+    if(!g){g={cy,words:[]};groups.push(g)}
+    g.words.push(w);g.cy=g.words.reduce((a,z)=>a+(z.bbox.y0+z.bbox.y1)/2,0)/g.words.length;
+  });
+  return groups.sort((a,b)=>a.cy-b.cy).map(g=>{
+    const ws=g.words.sort((a,b)=>a.bbox.x0-b.bbox.x0);
+    const text=ws.map(w=>w.text).join('');
+    const fixed=text.replace(/[Oo]/g,'0').replace(/[Il|]/g,'1').replace(/[Ss]/g,'5').replace(/[Zz]/g,'2').replace(/[Gg]/g,'6');
+    const m=fixed.match(/(\d{1,3})(?:[,.](\d))?/);
+    if(!m)return null;
+    const val=Number(m[1]+(m[2]?'.'+m[2]:''));
+    if(!Number.isFinite(val)||val<0||val>500)return null;
+    return {value:val,cy:g.cy/3,conf:Math.round(ws.reduce((a,z)=>a+z.confidence,0)/ws.length),raw:text};
+  }).filter(Boolean);
+}
+
+async function rainOCR(src, idx, total){
+  const tries=[];
+  for(let mode=0;mode<3;mode++){
+    const q=makeRainCanvas(src,mode);
+    const r=await Tesseract.recognize(q.canvas,'eng',{
+      logger:m=>{if(m.status==='recognizing text')setStatus('Görsel '+(idx+1)+'/'+total+' — yağış rakamları '+Math.round(m.progress*100)+'%',Math.round((idx+.55+m.progress*.45)/total*95))},
+      tessedit_pageseg_mode:'6',
+      tessedit_char_whitelist:'0123456789.,',
+      preserve_interword_spaces:'1'
+    });
+    const rows=numericRows(r.data.words||[]);
+    tries.push({rows,raw:r.data.text||'',mode});
+  }
+  // Üç ön işleme sonucundan en çok güvenilir satır verenini seç.
+  tries.sort((a,b)=>{
+    const sa=a.rows.length*10+a.rows.reduce((x,z)=>x+z.conf,0)/100;
+    const sb=b.rows.length*10+b.rows.reduce((x,z)=>x+z.conf,0)/100;
+    return sb-sa;
+  });
+  return tries[0]||{rows:[],raw:''};
+}
+
+async function ocrImage(file, idx, total){
+  const img=await createImageBitmap(file);
+  const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;
+  const c=canvas.getContext('2d');c.drawImage(img,0,0);
+
+  // 1) İstasyonları soldaki sütundan oku ve gerçek satır merkezlerini bul.
+  const split=Math.floor(canvas.width*0.78);
+  const left=document.createElement('canvas');left.width=split;left.height=canvas.height;
+  left.getContext('2d').drawImage(canvas,0,0,split,canvas.height,0,0,split,canvas.height);
+  setStatus('Görsel '+(idx+1)+'/'+total+' — istasyonlar okunuyor…',Math.round((idx/total)*60));
+  const a=await Tesseract.recognize(left,'tur',{
+    logger:m=>{if(m.status==='recognizing text')setStatus('Görsel '+(idx+1)+'/'+total+' — istasyonlar '+Math.round(m.progress*100)+'%',Math.round((idx+m.progress*.35)/total*60))},
+    tessedit_pageseg_mode:'6'
+  });
+  const stationLines=groupLines(a.data.words||[],24).filter(l=>l.text.includes(',')&&l.text.length>6);
+  if(!stationLines.length) return {out:[],raw:'--- '+file.name+' ---\nİstasyon OCR:\n'+a.data.text+'\n\nİstasyon satırı bulunamadı.'};
+
+  // 2) EN ÖNEMLİ DEĞİŞİKLİK: bütün yağış sütununu tek seferde okumak yerine,
+  // her istasyonun satırını ayrı ayrı kesip rakamı o hücrenin içinde okutuyoruz.
+  // Böylece 220,9 -> 148,6 -> 89,9 gibi satırlar birbirine kaymıyor.
+  const rows=[];
+  const centers=stationLines.map(x=>x.cy).sort((a,b)=>a-b);
+  for(let i=0;i<stationLines.length;i++){
+    const cy=stationLines[i].cy;
+    const prev=i>0 ? (centers[i-1]+cy)/2 : Math.max(0,cy-35);
+    const next=i<centers.length-1 ? (cy+centers[i+1])/2 : Math.min(canvas.height,cy+35);
+    // Yağış hücresinin tamamını al; yatay kenarlıklar sorun çıkarmasın diye biraz pay bırak.
+    const y0=Math.max(0,Math.floor(prev-4)), y1=Math.min(canvas.height,Math.ceil(next+4));
+    const x0=Math.floor(canvas.width*0.76), x1=canvas.width;
+    const crop=document.createElement('canvas');
+    crop.width=Math.max(1,(x1-x0)*5); crop.height=Math.max(1,(y1-y0)*5);
+    const cc=crop.getContext('2d',{willReadFrequently:true});
+    cc.imageSmoothingEnabled=false;
+    cc.drawImage(canvas,x0,y0,x1-x0,y1-y0,0,0,crop.width,crop.height);
+
+    let candidates=[];
+    // MGM'nin kırmızı hücresindeki beyaz yazı için birkaç eşik yöntemi.
+    for(let mode=0;mode<4;mode++){
+      const q=document.createElement('canvas');q.width=crop.width;q.height=crop.height;
+      const qc=q.getContext('2d',{willReadFrequently:true});qc.drawImage(crop,0,0);
+      const d=qc.getImageData(0,0,q.width,q.height), px=d.data;
+      for(let k=0;k<px.length;k+=4){
+        const R=px[k],G=px[k+1],B=px[k+2],gray=.299*R+.587*G+.114*B;
+        let keep;
+        if(mode===0) keep=(gray>145 && R>G*.82 && R>B*.82);
+        else if(mode===1) keep=(gray>175);
+        else if(mode===2) keep=(R>150 && G>145 && B>145);
+        else keep=(R+G+B>520);
+        const v=keep?255:0;px[k]=px[k+1]=px[k+2]=v;px[k+3]=255;
+      }
+      qc.putImageData(d,0,0);
+      const rr=await Tesseract.recognize(q,'eng',{
+        logger:m=>{if(m.status==='recognizing text')setStatus('Görsel '+(idx+1)+'/'+total+' — yağış hücresi '+(i+1)+'/'+stationLines.length,Math.round(((idx+(i+0.5)/stationLines.length)*.9+0.1)/total*100))},
+        tessedit_pageseg_mode:'7',
+        tessedit_char_whitelist:'0123456789.,',
+        preserve_interword_spaces:'0'
+      });
+      const txt=(rr.data.text||'').replace(/\s+/g,'').replace(/[^0-9.,OoIl|SsZzGg]/g,'');
+      const fixed=txt.replace(/[Oo]/g,'0').replace(/[Il|]/g,'1').replace(/[Ss]/g,'5').replace(/[Zz]/g,'2').replace(/[Gg]/g,'6');
+      const m=fixed.match(/(\d{1,3})(?:[,.](\d))?/);
+      if(m){
+        const val=Number(m[1]+(m[2]?'.'+m[2]:''));
+        if(Number.isFinite(val)&&val>=0&&val<=500){
+          candidates.push({value:val,conf:Math.round(rr.data.confidence||0),raw:txt,mode});
+        }
+      }
+    }
+    // Aynı hücre için birden fazla sonuç varsa en yüksek güveni seç.
+    candidates.sort((u,v)=>v.conf-u.conf);
+    const best=candidates[0]||null;
+    rows.push({station:stationLines[i].text,mm:best?best.value:null,conf:best?best.conf:0,raw:best?best.raw:'',y:cy,cropY:[y0,y1]});
+  }
+
+  const out=rows.map(r=>({station:norm(r.station),mm:r.mm,cy:r.y,delta:0,confidence:r.conf,source:file.name}));
+  return {out,raw:'--- '+file.name+' ---\nİSTASYON OCR:\n'+a.data.text+'\n\nYAĞIŞ HÜCRELERİ (satır satır):\n'+rows.map((r,i)=>(i+1)+'. '+r.station+' => '+(r.mm==null?'OKUNAMADI':String(r.mm).replace('.',','))+'  OCR:'+r.conf+'%  ['+r.raw+']').join('\n')};
+}
+
+function renderPending(){
+  $('results').innerHTML='';
+  if(!pending.length){$('results').innerHTML='<div class="small">Uygun kayıt bulunamadı. Ham OCR metnini kontrol et.</div>';return}
+  pending.forEach((r,i)=>{
+    const d=document.createElement('div');d.className='result '+(r.mm==null||r.delta>35?'warn':'');
+    d.innerHTML=`<div class="checks"><input type="checkbox" data-i="${i}" ${r.mm!=null?'checked':''}><span class="station">${escapeHtml(r.station)}</span></div>
+    <div class="meta">${r.mm==null?'⚠ Yağış değeri eşleştirilemedi':('Satır farkı: '+r.delta+' px • OCR güveni yaklaşık '+r.confidence+'%')}</div>
+    <input class="editStation" data-i="${i}" type="text" value="${escapeAttr(r.station)}">
+    <input class="editMM" data-i="${i}" type="text" inputmode="decimal" placeholder="mm" value="${r.mm==null?'':String(r.mm).replace('.',',')}">`;
+    $('results').appendChild(d);
+  });
+}
+function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function escapeAttr(s){return escapeHtml(s)}
+
+$('results').addEventListener('input',e=>{
+ if(e.target.classList.contains('editStation'))pending[+e.target.dataset.i].station=e.target.value;
+ if(e.target.classList.contains('editMM')){let v=parseNum(e.target.value);pending[+e.target.dataset.i].mm=v}
+});
+
+$('read').onclick=async()=>{
+ const files=[...$('files').files]; if(!files.length){alert('Önce görsel seç.');return}
+ if(!$('date').value){alert('Önce tarihi seç.');return}
+ pending=[];rawAll=[];renderPending();
+ try{
+   for(let i=0;i<files.length;i++){const z=await ocrImage(files[i],i,files.length);pending.push(...z.out);rawAll.push(z.raw);renderPending()}
+   $('raw').textContent=rawAll.join('\\n\\n');setStatus('Tamamlandı. '+pending.length+' aday kayıt bulundu.',100)
+ }catch(e){console.error(e);setStatus('OCR sırasında hata: '+e.message,0);$('raw').textContent+= '\\nHATA: '+e.stack}
+};
+
+$('save').onclick=()=>{
+ const date=$('date').value;if(!date){alert('Tarih seç.');return}
+ const boxes=[...$('results').querySelectorAll('.result')];
+ let n=0;
+ boxes.forEach((box,i)=>{
+   const cb=box.querySelector('input[type=checkbox]');if(!cb.checked)return;
+   const st=box.querySelector('.editStation').value.trim();const mm=parseNum(box.querySelector('.editMM').value);
+   if(!st||mm==null)return;
+   const parts=st.split(',').map(x=>x.trim()).filter(Boolean);
+   const province=parts[0]||'Bilinmiyor', district=parts[1]||'', station=parts.slice(2).join(', ')||parts.slice(1).join(', ')||st;
+   records=records.filter(r=>!(r.date===date&&r.province===province&&r.station===station));
+   records.push({date,province,district,station,mm});
+   n++;
+ });
+ saveLS();alert(n+' kayıt kaydedildi.');renderPending();
+};
+
+$('clear').onclick=()=>{pending=[];rawAll=[];$('raw').textContent='-';$('results').innerHTML='<div class="small">Henüz sonuç yok.</div>';setStatus('',0)}
+$('province').onchange=renderTable;$('month').onchange=renderTable;
+$('wipe').onclick=()=>{if(confirm('Telefonda tutulan bütün yağış kayıtları silinsin mi?')){records=[];saveLS()}}
+function renderFilters(){
+ const old=$('province').value;const vals=[...new Set(records.map(r=>r.province).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'tr'));
+ $('province').innerHTML='<option value="">Tüm iller</option>'+vals.map(v=>`<option>${escapeHtml(v)}</option>`).join('');$('province').value=vals.includes(old)?old:'';
+}
+function renderTable(){
+ const month=$('month').value, prov=$('province').value;
+ let rs=records.filter(r=>(!month||r.date.startsWith(month))&&(!prov||r.province===prov));
+ if(!rs.length){$('tableWrap').innerHTML='<div class="small">Bu filtrede kayıt yok.</div>';return}
+ const stations=[...new Set(rs.map(r=>r.station))].sort((a,b)=>a.localeCompare(b,'tr'));
+ const by=new Map(rs.map(r=>[r.date+'|'+r.station,r.mm]));
+ const days=[...new Set(rs.map(r=>r.date))].sort();
+ let h='<table><thead><tr><th>Gün</th>'+stations.map(s=>'<th>'+escapeHtml(s)+'</th>').join('')+'</tr></thead><tbody>';
+ days.forEach(d=>{h+='<tr><td>'+new Date(d+'T00:00').getDate()+'</td>'+stations.map(s=>{const v=by.get(d+'|'+s);return '<td>'+(v==null?'—':String(v).replace('.',','))+'</td>'}).join('')+'</tr>'});
+ $('tableWrap').innerHTML=h+'</tbody></table>';
+}
+$('export').onclick=()=>{
+ if(!records.length){alert('Kayıt yok.');return}
+ let csv='Tarih,İl,İlçe,İstasyon,Yağış_mm\\n'+records.map(r=>[r.date,r.province,r.district,r.station,String(r.mm).replace('.',',')].map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(',')).join('\\n');
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='mgm_yagis_kayitlari.csv';a.click();URL.revokeObjectURL(a.href)
+};
+(function init(){const now=new Date();$('date').value=now.toISOString().slice(0,10);$('month').value=now.toISOString().slice(0,7);renderFilters();renderTable()})();
+</script>
+</body>
+</html>
