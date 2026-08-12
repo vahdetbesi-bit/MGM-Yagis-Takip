@@ -579,13 +579,179 @@ function parseOCR(text){
 
         });
 
+function parseOCR(text){
+
+    const results = document.getElementById("ocrResults");
+
+    results.innerHTML = "";
+
+    ocrCandidates = [];
+
+    const lines = text
+        .split(/\r?\n/)
+        .map(x => x.trim())
+        .filter(x => x.length > 0);
+
+    lines.forEach((line, index) => {
+
+        let foundValues = [];
+
+        /*
+         * 1) Normal OCR:
+         * 10,4 / 10.4 / 1,2 / 15.4
+         */
+        const decimalMatches = line.match(
+            /(?<!\d)(\d{1,3}[,.]\d{1,2})(?!\d)/g
+        );
+
+        if(decimalMatches){
+            decimalMatches.forEach(raw => {
+
+                const value = parseFloat(
+                    raw.replace(",", ".")
+                );
+
+                if(
+                    !isNaN(value) &&
+                    value >= 0 &&
+                    value <= 500
+                ){
+                    foundValues.push({
+                        value: value,
+                        raw: raw
+                    });
+                }
+
+            });
+        }
+
+        /*
+         * 2) OCR virgülü/noktayı kaybetmiş olabilir.
+         *
+         * Örneğin:
+         * Gerçek: 10,4
+         * OCR:    104
+         *
+         * 3 basamaklı sayıyı 10.4 olarak değerlendir.
+         */
+        if(foundValues.length === 0){
+
+            const integerMatches = line.match(
+                /(?<!\d)\d{3}(?!\d)/g
+            );
+
+            if(integerMatches){
+
+                integerMatches.forEach(raw => {
+
+                    const number = parseInt(raw, 10);
+
+                    if(number >= 100 && number <= 999){
+
+                        const value = number / 10;
+
+                        foundValues.push({
+                            value: value,
+                            raw: raw
+                        });
+
+                    }
+
+                });
+
+            }
+        }
+
+        /*
+         * Bu satırda hiç yağış değeri yoksa geç.
+         */
+        if(foundValues.length === 0) return;
+
+        /*
+         * Tarih satırlarını alma.
+         */
+        if(
+            /\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/.test(line)
+        ){
+            return;
+        }
+
+        foundValues.forEach(item => {
+
+            let stationText = line
+                .replace(item.raw, "")
+                .replace(/[|:;]+/g, " ")
+                .trim();
+
+            /*
+             * Eğer sayı ayrı bir satırdaysa,
+             * bir önceki satırı istasyon adı kabul et.
+             *
+             * Örnek:
+             *
+             * ARHAVI/BOYUNCUK
+             * KOYU
+             * 104
+             *
+             * sonuç:
+             * ARHAVI/BOYUNCUK KOYU
+             * 10.4
+             */
+            if(
+                stationText.length < 3 &&
+                index > 0
+            ){
+
+                stationText = lines[index - 1]
+                    .replace(/[|:;]+/g, " ")
+                    .trim();
+
+                /*
+                 * Bir önceki satır da kısa ise
+                 * ondan da bir önceki satıra bak.
+                 */
+                if(
+                    stationText.length < 3 &&
+                    index > 1
+                ){
+
+                    stationText = lines[index - 2]
+                        .replace(/[|:;]+/g, " ")
+                        .trim();
+                }
+            }
+
+            /*
+             * Sadece 1, 2, 3 gibi OCR gürültülerini
+             * istasyon olarak kabul etme.
+             */
+            if(
+                /^[0-9.,]+$/.test(stationText)
+            ){
+                stationText = "";
+            }
+
+            ocrCandidates.push({
+
+                station:
+                    stationText ||
+                    "İstasyon adı kontrol edilmeli",
+
+                amount:
+                    item.value.toFixed(1),
+
+                checked: true
+
+            });
+
+        });
+
     });
 
-
     /*
-      Aynı istasyon + aynı miktar tekrarlarını temizle.
-    */
-
+     * Aynı istasyon + aynı yağış değerlerini
+     * tekrar kaydetme.
+     */
     const unique = [];
 
     ocrCandidates.forEach(item => {
@@ -605,14 +771,11 @@ function parseOCR(text){
 
     renderOCRResults();
 
-
     /*
-      Ham OCR metnini göster.
-      Böylece otomatik okuma yanlışsa
-      neyin yanlış okunduğunu görebiliriz.
-    */
-
-    const rawBox = document.createElement("details");
+     * Ham OCR metnini göster.
+     */
+    const rawBox =
+        document.createElement("details");
 
     rawBox.innerHTML = `
         <summary>🔎 Ham OCR metnini göster</summary>
