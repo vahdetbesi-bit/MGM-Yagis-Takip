@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MGM Yağış Takip</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#05091b;color:#f4f7ff;font-family:Arial,sans-serif}
+main{max-width:1000px;margin:auto;padding:14px}.card{background:#0a1128;border:1px solid #2d3c5b;border-radius:16px;padding:15px;margin:12px 0}
+h1{font-size:23px;margin:2px 0 14px}h2{font-size:18px;margin:0 0 12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{display:block;color:#aebbd3;margin:6px 0}input,select,button{font:inherit}input,select{width:100%;padding:11px;border-radius:10px;border:1px solid #344768;background:#07142d;color:#fff}
+button{padding:12px 16px;border:0;border-radius:11px;background:#00a51a;color:#fff;font-weight:700;margin:6px 5px 0 0}.secondary{background:#263754}
+.small{font-size:13px;color:#9eabc2}.status{margin-top:10px;white-space:pre-line}.scroll{overflow:auto;margin-top:12px}
+table{border-collapse:collapse;min-width:100%;white-space:nowrap}th,td{border:1px solid #334361;padding:9px 12px;text-align:center}th{background:#12203b}th:first-child,td:first-child{position:sticky;left:0;background:#0d1932;font-weight:700}
+.item{border:1px solid #344768;border-radius:11px;padding:9px;margin:8px 0}.item input{margin-top:6px}.warn{border-color:#9a7800}
+</style>
+</head>
+<body><main>
+<h1>🌧️ MGM Yağış Takip</h1>
+
+<section class="card">
+<h2>Görselleri yükle</h2>
+<label>Tarih</label>
+<input id="date" type="date">
+<label>O güne ait MGM görselleri</label>
+<input id="files" type="file" accept="image/*" multiple>
+<div class="small">Aynı güne ait bütün görselleri birlikte seçebilirsin. Görsellerde birden fazla il bulunabilir; il seçmene gerek yok.</div>
+<button id="read">Görselleri oku</button>
+<div id="status" class="status">Hazır.</div>
+</section>
+
+<section class="card">
+<h2>Okunan kayıtlar</h2>
+<div class="small">Okunan kayıtları kaydetmeden önce düzeltebilirsin.</div>
+<div id="results"><div class="small">Henüz veri yok.</div></div>
+<button id="save">Günü kaydet</button>
+</section>
+
+<section class="card">
+<h2>Yağış tablosu</h2>
+<div class="grid">
+<div><label>İl</label><select id="province"><option value="">İl seç</option></select></div>
+<div><label>Yıl</label><select id="year"><option value="">Yıl seç</option></select></div>
+</div>
+<div class="grid">
+<div><label>Başlangıç</label><input id="from" type="date"></div>
+<div><label>Bitiş</label><input id="to" type="date"></div>
+</div>
+<div class="small">Görsel yüklenmeyen gün/istasyon hücreleri otomatik <b>0</b> gösterilir.</div>
+<div id="table" class="scroll"><div class="small">İl ve yıl seç.</div></div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+const KEY="mgm_yagis_final_v2";
+let db=JSON.parse(localStorage.getItem(KEY)||"[]"), pending=[];
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function saveDB(){localStorage.setItem(KEY,JSON.stringify(db));fillFilters();draw()}
+function nval(s){let x=String(s||"").replace(",",".").replace(/[^0-9.]/g,"");let n=parseFloat(x);return Number.isFinite(n)&&n>=0&&n<=5000?n:null}
+
+function fillFilters(){
+ let p=[...new Set(db.map(x=>x.province))].sort((a,b)=>a.localeCompare(b,"tr"));
+ let y=[...new Set(db.map(x=>x.date.slice(0,4)))].sort().reverse();
+ let oldp=$("province").value,oldy=$("year").value;
+ $("province").innerHTML='<option value="">İl seç</option>'+p.map(x=>`<option>${esc(x)}</option>`).join("");
+ $("year").innerHTML='<option value="">Yıl seç</option>'+y.map(x=>`<option>${x}</option>`).join("");
+ if(p.includes(oldp))$("province").value=oldp;if(y.includes(oldy))$("year").value=oldy;
+}
+function days(a,b){
+ let out=[],d=new Date(a+"T00:00:00"),e=new Date(b+"T00:00:00");if(isNaN(d)||isNaN(e))return out;
+ while(d<=e){out.push(d.toISOString().slice(0,10));d.setDate(d.getDate()+1)}return out
+}
+function draw(){
+ let p=$("province").value,y=$("year").value;
+ if(!p||!y){$("table").innerHTML='<div class="small">İl ve yıl seç.</div>';return}
+ let rs=db.filter(x=>x.province===p&&x.date.startsWith(y));if(!rs.length){$("table").innerHTML='<div class="small">Kayıt yok.</div>';return}
+ let stations=[...new Set(rs.map(x=>x.station))].sort((a,b)=>a.localeCompare(b,"tr"));
+ let a=$("from").value||`${y}-01-01`,b=$("to").value||`${y}-12-31`;
+ a=Math.max(new Date(a+"T00:00:00").getTime(),new Date(`${y}-01-01T00:00:00`).getTime());
+ b=Math.min(new Date(b+"T00:00:00").getTime(),new Date(`${y}-12-31T00:00:00`).getTime());
+ let ds=days(new Date(a).toISOString().slice(0,10),new Date(b).toISOString().slice(0,10));
+ let m=new Map(rs.map(x=>[x.date+"|"+x.station,x.mm]));
+ let h=`<table><thead><tr><th>${esc(y+" "+p)}</th>${stations.map(s=>`<th>${esc(s)}</th>`).join("")}</tr></thead><tbody>`;
+ ds.forEach(d=>{h+=`<tr><td>${d.slice(8,10)}.${d.slice(5,7)}</td>`;stations.forEach(s=>{let v=m.get(d+"|"+s);h+=`<td>${v==null?"0":String(v).replace(".",",")}</td>`});h+="</tr>"});
+ $("table").innerHTML=h+"</tbody></table>"
+}
+
+async function image(file){return new Promise((ok,no)=>{let u=URL.createObjectURL(file),i=new Image();i.onload=()=>{URL.revokeObjectURL(u);ok(i)};i.onerror=no;i.src=u})}
+function canvas(im){
+ let c=document.createElement("canvas"),w=im.naturalWidth,h=im.naturalHeight,max=2400;if(w>max){h=Math.round(h*max/w);w=max}
+ c.width=w;c.height=h;c.getContext("2d").drawImage(im,0,0,w,h);return c
+}
+
+/* Renk kullanılmaz.
+   OCR kelimelerinin koordinatları kullanılarak aynı yatay satırdaki
+   istasyon metni ve sayı eşleştirilir. MGM'nin farklı renkli yağış
+   hücrelerinde de çalışabilmesi için renk bağımlılığı yoktur. */
+async function readImage(file,worker){
+ let c=canvas(await image(file)),r=await worker.recognize(c);
+ let words=(r.data.words||[]).filter(w=>w.text.trim());
+ let numbers=words.filter(w=>/^\d{1,4}([.,]\d{1,2})?$/.test(w.text.trim()))
+  .map(w=>({t:w.text.trim(),x:w.bbox.x0,y:(w.bbox.y0+w.bbox.y1)/2}));
+ let lines=[];
+ words.filter(w=>/[A-Za-zÇĞİÖŞÜçğıöşü]/.test(w.text)).forEach(w=>{
+   let y=(w.bbox.y0+w.bbox.y1)/2,l=lines.find(q=>Math.abs(q.y-y)<24);
+   if(!l){l={y,parts:[]};lines.push(l)}l.parts.push(w)
+ });
+ let out=[];
+ lines.forEach(l=>{
+   l.parts.sort((a,b)=>a.bbox.x0-b.bbox.x0);
+   let txt=l.parts.map(w=>w.text).join(" ").replace(/\s+/g," ").trim();
+   let nn=numbers.filter(n=>Math.abs(n.y-l.y)<35);
+   if(!nn.length)return;
+   // En sağdaki sayı, istasyon satırının yağış değeri olma ihtimali en yüksek adaydır.
+   nn.sort((a,b)=>b.x-a.x);let v=nval(nn[0].t);if(v==null)return;
+   let parts=txt.split(",").map(x=>x.trim()).filter(Boolean);
+   let province="",district="",station="";
+   if(parts.length>=3){province=parts[0];district=parts[1];station=parts[parts.length-1]}
+   else if(parts.length===2){province=parts[0];station=parts[1]}
+   else station=parts[0];
+   station=station.replace(/^\s*[/\-]+\s*/,"").trim();
+   if(station.length<2)return;
+   out.push({province,district,station,mm:v});
+ });
+ return out;
+}
+
+function renderPending(){
+ if(!pending.length){$("results").innerHTML='<div class="small">Kayıt bulunamadı.</div>';return}
+ $("results").innerHTML=pending.map((x,i)=>`<div class="item ${x.province&&x.station&&x.mm!=null?"":"warn"}">
+ <label><input type="checkbox" data-i="${i}" checked style="width:auto"> ${esc(x.province?x.province+" / ":"")}${esc(x.station)}</label>
+ <input data-p="${i}" value="${esc(x.province)}" placeholder="İl">
+ <input data-s="${i}" value="${esc(x.station)}" placeholder="İstasyon (son yer adı)">
+ <input data-v="${i}" value="${x.mm==null?"":String(x.mm).replace(".",",")}" placeholder="Yağış mm"></div>`).join("")
+}
+$("results").addEventListener("input",e=>{
+ let i=e.target.dataset.i||e.target.dataset.p||e.target.dataset.s||e.target.dataset.v;
+ if(i==null)return;
+ if(e.target.dataset.p!=null)pending[i].province=e.target.value;
+ if(e.target.dataset.s!=null)pending[i].station=e.target.value;
+ if(e.target.dataset.v!=null)pending[i].mm=nval(e.target.value);
+});
+$("read").onclick=async()=>{
+ let fs=[...$("files").files],date=$("date").value;if(!date||!fs.length){alert("Tarih ve görsel seç.");return}
+ pending=[];$("read").disabled=true;
+ try{
+  $("status").textContent="OCR hazırlanıyor...";
+  let w=await Tesseract.createWorker("tur");await w.setParameters({tessedit_pageseg_mode:"6"});
+  for(let i=0;i<fs.length;i++){$("status").textContent=`${i+1}/${fs.length} görsel okunuyor...`;pending.push(...await readImage(fs[i],w))}
+  await w.terminate();renderPending();$("status").textContent=`Tamamlandı: ${pending.length} kayıt adayı.`
+ }catch(e){$("status").textContent="Hata: "+e.message}finally{$("read").disabled=false}
+};
+$("save").onclick=()=>{
+ let date=$("date").value;if(!date){alert("Tarih seç.");return}
+ document.querySelectorAll(".item").forEach((el,i)=>{
+   if(!el.querySelector('[type=checkbox]').checked)return;
+   let p=el.querySelector('[data-p]').value.trim(),s=el.querySelector('[data-s]').value.trim(),v=nval(el.querySelector('[data-v]').value);
+   if(!p||!s||v==null)return;
+   db=db.filter(x=>!(x.date===date&&x.province===p&&x.station===s));db.push({date,province:p,station:s,mm:v});
+ });
+ saveDB();alert("Gün kaydedildi.")
+};
+$("province").onchange=draw;$("year").onchange=draw;$("from").onchange=draw;$("to").onchange=draw;
+(function(){let d=new Date();$("date").value=d.toISOString().slice(0,10);fillFilters()})();
+</script></main></body></html>
