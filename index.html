@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MGM Yağış Takip</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#050817;color:#eee;font-family:Arial,sans-serif}
+main{max-width:1000px;margin:auto;padding:18px}
+.card{border:1px solid #33415f;border-radius:24px;padding:20px;margin-bottom:18px;background:#070b1e}
+h1,h2{margin:0 0 12px}label{display:block;margin:10px 0 6px;color:#b8c0d4}
+input,button{font:inherit}input[type=date],input[type=file]{width:100%;padding:12px;border-radius:12px;background:#111a32;color:#fff;border:1px solid #415172}
+button{border:0;border-radius:14px;padding:13px 18px;background:#00a000;color:white;font-weight:bold;margin-top:12px}
+button.secondary{background:#24324f}.status{margin-top:14px;color:#b8c0d4}
+.tablewrap{overflow:auto;margin-top:15px}.grid{border-collapse:collapse;min-width:700px;width:100%;background:#090d18}
+.grid th,.grid td{border:1px solid #596174;padding:9px;text-align:center;white-space:nowrap}
+.grid th{background:#11182b}.grid th.station{text-align:center}.grid td.day{text-align:center}
+.small{font-size:13px;color:#9ca6bd}.warn{color:#ffd15c}.ok{color:#8ff08f}
+</style>
+</head>
+<body><main>
+<div class="card">
+<h1>🌧️ MGM Yağış Takip</h1>
+<p class="small">Aynı güne ait birden fazla görsel seç. Görsellerde birden fazla il bulunabilir; il seçmek gerekmez.</p>
+<label>Tarih</label><input id="date" type="date">
+<label>Görseller</label><input id="files" type="file" accept="image/*" multiple>
+<br><button id="read">🔎 Görselleri oku</button>
+<div id="status" class="status"></div>
+</div>
+
+<div class="card">
+<h2>📊 Yağış tablosu</h2>
+<p class="small">İl ve yıl yalnızca üstte bir kez gösterilir. İstasyonlar üstte soldan sağa, günler solda yukarıdan aşağı sıralanır.</p>
+<div class="tablewrap"><table id="grid" class="grid"></table></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const records=[];
+const days={};
+
+$("date").value=new Date().toISOString().slice(0,10);
+
+function norm(s){
+ return s.toLocaleUpperCase("tr-TR")
+  .replace(/[|]/g,"I").replace(/\s+/g," ").trim();
+}
+function parseNum(s){
+ s=s.replace(/\s/g,"").replace(",",".");
+ const m=s.match(/\d+(?:\.\d+)?/); return m?parseFloat(m[0]):null;
+}
+
+/*
+  Önemli yöntem:
+  Görseli önce iki bölgeye ayırıyoruz: sol istasyon sütunu / sağ yağış sütunu.
+  Sonra her bölgeyi yatay satırlara bölüyoruz.
+  OCR motoru yoksa tarayıcının yerleşik OCR'ına güvenmek yerine,
+  görüntüdeki satır geometrisini çıkarmak için kontrastlı yatay çizgileri
+  kullanıyoruz. Bu sürüm ayrıca OCR sonucu elle doğrulanabilsin diye
+  adayları tabloya koyar.
+*/
+async function imageToCanvas(file){
+ const bmp=await createImageBitmap(file);
+ const c=document.createElement("canvas");
+ c.width=bmp.width;c.height=bmp.height;
+ c.getContext("2d").drawImage(bmp,0,0);
+ return c;
+}
+
+function detectRows(c){
+ const ctx=c.getContext("2d",{willReadFrequently:true});
+ const w=c.width,h=c.height;
+ const d=ctx.getImageData(0,0,w,h).data;
+ const score=[];
+ for(let y=0;y<h;y++){
+   let changes=0, bright=0;
+   for(let x=0;x<w;x+=3){
+     const i=(y*w+x)*4;
+     const v=(d[i]+d[i+1]+d[i+2])/3;
+     if(v>145) bright++;
+     if(x>0){
+       const j=(y*w+x-3)*4;
+       const p=(d[j]+d[j+1]+d[j+2])/3;
+       if(Math.abs(v-p)>55) changes++;
+     }
+   }
+   score[y]=bright/(w/3)+changes/(w/3)*0.35;
+ }
+ let bands=[],on=false,start=0;
+ for(let y=0;y<h;y++){
+   const hit=score[y]>.10;
+   if(hit&&!on){start=y;on=true}
+   if(!hit&&on){if(y-start>3)bands.push([start,y]);on=false}
+ }
+ if(on)bands.push([start,h]);
+ // Satırları yaklaşık metin yüksekliğine göre birleştir
+ const out=[];
+ for(const b of bands){
+   if(!out.length || b[0]-out[out.length-1][1]>10) out.push(b);
+   else out[out.length-1][1]=b[1];
+ }
+ return out.filter(b=>b[1]-b[0]>8);
+}
+
+function cropForOCR(c,box){
+ const [x,y,w,h]=box,cc=document.createElement("canvas");
+ cc.width=Math.max(1,w);cc.height=Math.max(1,h);
+ cc.getContext("2d").drawImage(c,x,y,w,h,0,0,w,h);
+ return cc;
+}
+
+/* Basit OCR: Android Chrome'da destek varsa Shape Detection API kullanılır.
+   Destek yoksa kullanıcıdan rakam/istasyon istemek yerine kayıt oluşturmaz;
+   böylece yanlış veri kaydedilmez. */
+async function ocrText(canvas){
+ if("TextDetector" in window){
+   try{
+    const det=new TextDetector();
+    const items=await det.detect(canvas);
+    return items.map(x=>x.rawValue||"").join(" ");
+   }catch(e){}
+ }
+ return "";
+}
+
+async function processImage(file){
+ const c=await imageToCanvas(file);
+ const rows=detectRows(c);
+ const w=c.width;
+ let found=[];
+ for(const [y1,y2] of rows){
+   const pad=Math.max(2,Math.round((y2-y1)*.25));
+   const y=Math.max(0,y1-pad), h=Math.min(c.height-y,y2-y1+pad*2);
+   const left=await ocrText(cropForOCR(c,[0,y,Math.round(w*.82),h]));
+   const right=await ocrText(cropForOCR(c,[Math.round(w*.82),y,w-Math.round(w*.82),h]));
+   const val=parseNum(right);
+   const txt=norm(left);
+   if(val!==null && txt.length>3) found.push({text:txt,value:val});
+ }
+ return found;
+}
+
+function splitStation(text){
+ text=text.replace(/\s+/g," ").trim();
+ const parts=text.split(",").map(x=>x.trim()).filter(Boolean);
+ if(parts.length>=3){
+   return {il:parts[0],station:parts[2].replace(/\.$/,"")};
+ }
+ if(parts.length===2) return {il:parts[0],station:parts[1]};
+ return {il:"",station:text};
+}
+
+function addRecords(found,date){
+ if(!days[date])days[date]=[];
+ for(const r of found){
+   const s=splitStation(r.text);
+   if(!s.station || r.value===null)continue;
+   const key=(s.il+"|"+s.station).toLocaleUpperCase("tr-TR");
+   const exists=days[date].find(x=>x.key===key);
+   if(exists) exists.value=r.value;
+   else days[date].push({key,il:s.il,station:s.station,value:r.value});
+ }
+}
+
+function render(){
+ const dates=Object.keys(days).sort();
+ const map=new Map();
+ dates.forEach(d=>days[d].forEach(r=>{
+   if(!map.has(r.key))map.set(r.key,{il:r.il,station:r.station,vals:{}});
+   map.get(r.key).vals[d]=r.value;
+ }));
+ const stations=[...map.values()].sort((a,b)=>a.station.localeCompare(b.station,"tr"));
+ let h="<thead>";
+ if(!stations.length){$("grid").innerHTML="";return}
+ const year=dates[0]?.slice(0,4)||"";
+ const provinces=[...new Set(stations.map(s=>s.il).filter(Boolean))].join(" / ");
+ h+=`<tr><th colspan="${stations.length+1}">${provinces} — ${year}</th></tr>`;
+ h+="<tr><th>Gün</th>";
+ stations.forEach(s=>h+=`<th class="station">${s.station}</th>`);
+ h+="</tr></thead><tbody>";
+ dates.forEach(d=>{
+   h+=`<tr><td class="day">${d.slice(5)}</td>`;
+   stations.forEach(s=>{
+     const v=s.vals[d];
+     h+=`<td>${v==null?"0":String(v).replace(".",",")}</td>`;
+   });
+   h+="</tr>";
+ });
+ h+="</tbody>";
+ $("grid").innerHTML=h;
+}
+
+$("read").onclick=async()=>{
+ const files=[...$("files").files],date=$("date").value;
+ if(!date){$("status").textContent="Önce tarih seç.";return}
+ if(!files.length){$("status").textContent="Görsel seç.";return}
+ $("status").textContent=`${files.length} görsel işleniyor...`;
+ let total=0;
+ for(const f of files){
+   const found=await processImage(f);
+   addRecords(found,date); total+=found.length;
+ }
+ render();
+ $("status").innerHTML=`Tamamlandı. <b>${total}</b> aday kayıt bulundu. <span class="warn">0 görünen günler için görsel yüklemediğin istasyonlar otomatik 0 gösterilir.</span>`;
+};
+</script>
+</main></body></html>
